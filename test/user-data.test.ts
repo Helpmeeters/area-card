@@ -4,7 +4,7 @@ import { floorExpandedKey } from "../src/floor-state";
 import { pinnedKey, serializeAreaPins, type AreaPins } from "../src/pinned-entities";
 import type { ClassifierHass } from "../src/sections";
 import {
-  BATTERY_MODE_KEY,
+  batteryModeKey,
   cachedBatteryMode,
   cachedFloorExpanded,
   cachedPins,
@@ -479,18 +479,27 @@ describe("frontend user data", { concurrency: 1 }, () => {
     assert.deepEqual(cachedPins("kitchen"), { always: ["light.b"], whenOn: [], background: [] });
   });
 
-  it("keeps one battery mode for the user and forgets it when the key is gone", async () => {
+  it("keeps a battery mode for each area and forgets it when that area's key is gone", async () => {
     const harness = createHarness();
     const pending = ensureUserData(harness.hass);
-    harness.emit({ [BATTERY_MODE_KEY]: "yellow", [pinnedKey("kitchen")]: ["light.a"] });
+    harness.emit({
+      "area-card-battery": "green",
+      [batteryModeKey("kitchen")]: "yellow",
+      [batteryModeKey("bedroom")]: "red",
+      [pinnedKey("kitchen")]: ["light.a"],
+    });
     await pending;
-    assert.equal(cachedBatteryMode(), "yellow");
-    await saveBatteryMode(harness.hass, "red");
-    assert.equal(cachedBatteryMode(), "red");
-    const saved = harness.calls.find((call) => call.key === BATTERY_MODE_KEY);
-    assert.equal(saved?.value, "red");
-    harness.emit({ [pinnedKey("kitchen")]: ["light.a"] });
-    assert.equal(cachedBatteryMode(), "off");
+    assert.equal(cachedBatteryMode("kitchen"), "yellow");
+    assert.equal(cachedBatteryMode("bedroom"), "red");
+    assert.equal(cachedBatteryMode("office"), "off");
+    await saveBatteryMode(harness.hass, "kitchen", "green");
+    assert.equal(cachedBatteryMode("kitchen"), "green");
+    assert.equal(cachedBatteryMode("bedroom"), "red");
+    const saved = harness.calls.find((call) => call.key === batteryModeKey("kitchen"));
+    assert.equal(saved?.value, "green");
+    harness.emit({ [batteryModeKey("bedroom")]: "red", [pinnedKey("kitchen")]: ["light.a"] });
+    assert.equal(cachedBatteryMode("kitchen"), "off");
+    assert.equal(cachedBatteryMode("bedroom"), "red");
     assert.equal(cachedPins("kitchen").always[0], "light.a");
   });
 });

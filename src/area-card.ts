@@ -71,7 +71,7 @@ import { type RollupId, type SectionRollup } from "./rollups";
 import { areaUnavailable, membershipKey, type ClassifierHass } from "./sections";
 import { BUBBLE_ELEMENT } from "./tags";
 import {
-  BATTERY_MODE_KEY,
+  batteryModeKey,
   cachedBatteryMode,
   cachedPins,
   ensureUserData,
@@ -377,8 +377,8 @@ class AreaCard extends HTMLElement {
       const hass = this._hass;
       const areaId = this.boundAreaId();
       if (!hass || !areaId) return;
-      if (key === BATTERY_MODE_KEY) {
-        this.paintBatteries(cachedBatteryMode());
+      if (key === batteryModeKey(areaId)) {
+        this.paintBatteries(cachedBatteryMode(areaId));
         return;
       }
       if (key !== pinnedKey(areaId)) return;
@@ -617,9 +617,9 @@ class AreaCard extends HTMLElement {
       this.areaEditEl = gear;
       ensureHeaderButtons(actions, battery, pencil, gear);
       pencil.setAttribute("aria-pressed", this.pinEditing ? "true" : "false");
-      syncBatteryButton(battery, cachedBatteryMode());
+      syncBatteryButton(battery, cachedBatteryMode(areaId));
     }
-    this.paintBatteries(cachedBatteryMode());
+    this.paintBatteries(cachedBatteryMode(areaId));
     syncPinToggles(root, {
       editing: this.pinEditing,
       modeOf: (entityId) => pinMode(cachedPins(areaId), entityId),
@@ -780,7 +780,7 @@ class AreaCard extends HTMLElement {
     applyPinnedHostStyle(host);
     this.syncButtonGap(true);
     this.syncPicturePlacement(true);
-    this.paintBatteries(cachedBatteryMode());
+    this.paintBatteries(cachedBatteryMode(areaId));
   }
 
   private pinnedCard(
@@ -1352,24 +1352,25 @@ class AreaCard extends HTMLElement {
 
   private chooseBatteryMode(mode: BatteryMode): void {
     const hass = this._hass;
-    if (!hass) return;
-    const shown = this.batteryWanted ?? cachedBatteryMode();
+    const areaId = this.boundAreaId();
+    if (!hass || !areaId) return;
+    const shown = this.batteryWanted ?? cachedBatteryMode(areaId);
     if (shown === mode) {
       this.paintBatteries(mode);
       return;
     }
     this.batteryWanted = mode;
     this.paintBatteries(mode);
-    void saveBatteryMode(hass, mode).then(
+    void saveBatteryMode(hass, areaId, mode).then(
       () => {
-        if (this._hass !== hass) return;
+        if (this._hass !== hass || this.boundAreaId() !== areaId) return;
         if (this.batteryWanted === mode) this.batteryWanted = null;
-        this.paintBatteries(cachedBatteryMode());
+        this.paintBatteries(cachedBatteryMode(areaId));
       },
       () => {
-        if (this._hass !== hass) return;
+        if (this._hass !== hass || this.boundAreaId() !== areaId) return;
         if (this.batteryWanted === mode) this.batteryWanted = null;
-        this.paintBatteries(cachedBatteryMode());
+        this.paintBatteries(cachedBatteryMode(areaId));
       },
     );
   }

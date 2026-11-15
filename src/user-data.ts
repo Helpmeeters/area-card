@@ -15,8 +15,12 @@ import {
 } from "./pinned-entities";
 import type { ClassifierHass } from "./sections";
 
-/** One battery filter for the signed-in user, shared by every area card. */
-export const BATTERY_MODE_KEY = "area-card-battery";
+/** One battery filter per area, for the signed-in user. */
+export const BATTERY_MODE_KEY_PREFIX = "area-card-battery:";
+
+export function batteryModeKey(areaId: string): string {
+  return `${BATTERY_MODE_KEY_PREFIX}${areaId}`;
+}
 
 interface FrontendHass {
   user?: { id?: string };
@@ -71,7 +75,7 @@ function isFloorKey(key: string): boolean {
 }
 
 function isBatteryKey(key: string): boolean {
-  return key === BATTERY_MODE_KEY;
+  return key.startsWith(BATTERY_MODE_KEY_PREFIX);
 }
 
 function isAreaCardKey(key: string): boolean {
@@ -514,14 +518,14 @@ export function saveFloorExpanded(hass: ClassifierHass, floorId: string, expande
   return setValue(hassApi(hass), floorExpandedKey(floorId), expanded);
 }
 
-export function cachedBatteryMode(): BatteryMode {
-  const entry = cache.get(BATTERY_MODE_KEY);
+export function cachedBatteryMode(areaId: string): BatteryMode {
+  const entry = cache.get(batteryModeKey(areaId));
   if (!entry || entry.kind !== "battery") return "off";
   return entry.mode;
 }
 
-export function saveBatteryMode(hass: ClassifierHass, mode: BatteryMode): Promise<void> {
-  return setValue(hassApi(hass), BATTERY_MODE_KEY, mode);
+export function saveBatteryMode(hass: ClassifierHass, areaId: string, mode: BatteryMode): Promise<void> {
+  return setValue(hassApi(hass), batteryModeKey(areaId), mode);
 }
 
 export function subscribeUserData(listener: (key: string) => void): () => void {
