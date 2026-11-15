@@ -1,9 +1,10 @@
+import { kioskSatelliteCardType } from "./kiosk-card";
 import { stripRoomName } from "./names";
 import { pictureBackgroundStyles } from "./picture";
 import { popupChromeStyles } from "./popup-chrome";
 import { readViewportWidth, rowColumns, type LineMeasure } from "./row-width";
 import { rollupLabel, sectionColor, sectionIcon, sectionRollups, sectionTitle, type RollupId } from "./rollups";
-import type { AreaSections, EntityState } from "./sections";
+import type { AreaSections, EntityState, SatelliteItem } from "./sections";
 import { areaHash, BUBBLE_CARD_TYPE, mushroomCardType } from "./tags";
 
 const FULL = { columns: 12 };
@@ -193,9 +194,7 @@ function sectionBody(
           : entityCard(entity, states, roomName, rows),
       );
     case "satellites":
-      return sections.satellites.map((item) =>
-        satelliteCard(item.entityId, states, roomName, rows, item.ledEntityId, item.alarmEntityId),
-      );
+      return sections.satellites.map((item) => satelliteCard(item, states, roomName, rows));
     case "sensors":
       return sections.sensors.map((entity) => entityCard(entity, states, roomName, rows));
     case "locks":
@@ -533,13 +532,23 @@ function occupancyCard(
 }
 
 function satelliteCard(
-  entity: string,
+  item: SatelliteItem,
   states: Record<string, EntityState>,
   roomName: string,
   layout: RowLayout,
-  ledId?: string,
-  alarmId?: string,
 ): Record<string, unknown> {
+  const entity = item.entityId;
+  const ledId = item.ledEntityId;
+  const alarmId = item.alarmEntityId;
+  const kiosk = item.deviceId ? kioskSatelliteCardType() : undefined;
+  if (kiosk && item.deviceId) {
+    return {
+      type: kiosk,
+      device: item.deviceId,
+      entity,
+      grid_options: FULL,
+    };
+  }
   const literal = layout.literalState;
   const led = ledId
     ? ` · LED: {{ states('${ledId}') | title }}{% if is_state('${ledId}', 'on') and state_attr('${ledId}', 'brightness') %} ({{ (state_attr('${ledId}', 'brightness') / 2.55) | round }}%){% endif %}`

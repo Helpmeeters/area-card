@@ -1,3 +1,4 @@
+import { kioskSatelliteCardType } from "./kiosk-card";
 import { matchesRoomPhrase } from "./names";
 
 export interface RegistryEntry {
@@ -68,6 +69,8 @@ export interface OccupancyItem {
 
 export interface SatelliteItem {
   entityId: string;
+  /** Device the sibling Kiosk Satellite Card is bound to. Absent when the satellite has none. */
+  deviceId?: string;
   ledEntityId?: string;
   alarmEntityId?: string;
 }
@@ -355,6 +358,7 @@ export function classifyArea(hass: ClassifierHass, areaId: string): AreaSections
 
   appendNamedAutomations(hass, areaId, allEntries, states, sections);
   appendSatelliteMediaPlayers(sections, allEntries, devices, states);
+  dropPlayersShownOnKioskCard(sections, allEntries, states);
 
   sections.climate = sortIds(sections.climate, states);
   sections.lights = sortIds(sections.lights, states);
@@ -381,7 +385,7 @@ export function membershipKey(areaId: string, name: string, icon: string, sectio
     .map((item) => `${item.entityId}=${item.pressureEntityId ?? ""}`)
     .join(",");
   const satellites = sections.satellites
-    .map((item) => `${item.entityId}=${item.ledEntityId ?? ""}=${item.alarmEntityId ?? ""}`)
+    .map((item) => `${item.entityId}=${item.ledEntityId ?? ""}=${item.alarmEntityId ?? ""}=${item.deviceId ?? ""}`)
     .join(",");
   const leds = sections.lights.map((id) => `${id}=${sections.lightLeds[id] ?? ""}`).join(",");
   return [
@@ -589,6 +593,29 @@ function appendSatelliteMediaPlayers(
   }
 }
 
+/**
+ * Kiosk Satellite Card shows Now Playing whenever the paired player exists.
+ * That player is already on the satellite card, so it is not also a Media players row.
+ * A satellite with no device stays on the template row, and its player stays listed.
+ */
+function dropPlayersShownOnKioskCard(
+  sections: AreaSections,
+  allEntries: RegistryEntry[],
+  states: Record<string, EntityState>,
+): void {
+  if (!kioskSatelliteCardType()) return;
+  const known = new Set(allEntries.map((entry) => entry.entity_id).filter((id) => id.length > 0));
+  const covered = new Set<string>();
+  for (const item of sections.satellites) {
+    if (!item.deviceId) continue;
+    const playerId = satelliteMediaPlayerId(item.entityId);
+    if (!playerId || (!states[playerId] && !known.has(playerId))) continue;
+    covered.add(playerId);
+  }
+  if (covered.size === 0) return;
+  sections.mediaPlayers = sections.mediaPlayers.filter((id) => !covered.has(id));
+}
+
 function satelliteMediaPlayerId(entityId: string): string | undefined {
   const prefix = "assist_satellite.";
   if (!entityId.startsWith(prefix)) return undefined;
@@ -601,6 +628,7 @@ function satelliteMediaPlayerId(entityId: string): string | undefined {
 
 function satelliteItem(entry: RegistryEntry, entries: RegistryEntry[], states: Record<string, EntityState>): SatelliteItem {
   const item: SatelliteItem = { entityId: entry.entity_id };
+  if (entry.device_id) item.deviceId = entry.device_id;
   const led = companionLed(entry.device_id, entries);
   const alarm = companionAlarm(entry.device_id, entries, states);
   if (led) item.ledEntityId = led;

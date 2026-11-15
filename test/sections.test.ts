@@ -39,6 +39,23 @@ function state(entityId: string, value: string, attributes: Record<string, unkno
   return { entity_id: entityId, state: value, attributes };
 }
 
+function withKioskElements(defined: readonly string[], run: () => void): void {
+  const host = globalThis as unknown as { customElements?: { get(name: string): unknown } };
+  const previous = host.customElements;
+  const names = new Set(defined);
+  host.customElements = {
+    get(name: string) {
+      return names.has(name) ? function KioskSatelliteCard() {} : undefined;
+    },
+  };
+  try {
+    run();
+  } finally {
+    if (previous) host.customElements = previous;
+    else delete host.customElements;
+  }
+}
+
 function hass(fixture: Fixture): ClassifierHass {
   const entities: Record<string, RegistryEntry> = {};
   const states: Record<string, EntityState> = {};
@@ -169,7 +186,7 @@ describe("classifyArea", () => {
     assert.deepEqual(result.lights, ["light.reading_lamp"]);
     assert.deepEqual(result.switches, []);
     assert.deepEqual(result.satellites, [
-      { entityId: "assist_satellite.updoot", ledEntityId: "light.updoot_led_control_idle" },
+      { entityId: "assist_satellite.updoot", deviceId: "updoot", ledEntityId: "light.updoot_led_control_idle" },
     ]);
   });
 
@@ -844,10 +861,12 @@ describe("satellite scope", () => {
     assert.deepEqual(result.satellites, [
       {
         entityId: "assist_satellite.plain",
+        deviceId: "plain",
         alarmEntityId: "binary_sensor.plain_alarm_ringing",
       },
       {
         entityId: "assist_satellite.updoot",
+        deviceId: "updoot",
         ledEntityId: "light.updoot_led_control_idle",
         alarmEntityId: "binary_sensor.updoot_alarm_ringing",
       },
@@ -920,14 +939,18 @@ describe("satellite scope", () => {
     });
 
     const office = classifyArea(fixture, "office_of_drew");
-    assert.deepEqual(office.satellites, [{ entityId: "assist_satellite.updoot_assist_satellite" }]);
+    assert.deepEqual(office.satellites, [
+      { entityId: "assist_satellite.updoot_assist_satellite", deviceId: "updoot1" },
+    ]);
     assert.deepEqual(office.mediaPlayers, ["media_player.tv", "media_player.updoot"]);
     assert.equal(office.switches.includes("button.updoot_favorite_current_song"), false);
     assert.equal(office.buttons.includes("button.updoot_favorite_current_song"), false);
     assert.equal(listedIds(office).includes("button.updoot_favorite_current_song"), false);
 
     const bedroom = classifyArea(fixture, "bedroom");
-    assert.deepEqual(bedroom.satellites, [{ entityId: "assist_satellite.updoot2_assist_satellite" }]);
+    assert.deepEqual(bedroom.satellites, [
+      { entityId: "assist_satellite.updoot2_assist_satellite", deviceId: "updoot2" },
+    ]);
     assert.deepEqual(bedroom.mediaPlayers, []);
 
     const cards = buildPopupCards(office, fixture.states ?? {});
@@ -935,6 +958,97 @@ describe("satellite scope", () => {
     assert.equal(player?.type, "media-control");
     assert.equal(cards.some((card) => card.entity === "button.updoot_favorite_current_song"), false);
     assert.ok(cards.some((card) => card.title === "Media players"));
+  });
+
+  it("uses the kiosk card for a satellite and leaves its player out of Media players", () => {
+    const fixture = hass({
+      devices: [
+        { id: "updoot1", area_id: "office_of_drew", name: "Updoot1", manufacturer: "kiosk_satellite" },
+        { id: "updoot-player", area_id: "office_of_drew", name: "Updoot", manufacturer: "Kiosk Satellite" },
+      ],
+      entities: [
+        { entity_id: "assist_satellite.updoot_assist_satellite", device_id: "updoot1" },
+        { entity_id: "media_player.updoot", device_id: "updoot-player" },
+        { entity_id: "media_player.tv", area_id: "office_of_drew" },
+        { entity_id: "assist_satellite.speaker", area_id: "office_of_drew" },
+        { entity_id: "media_player.speaker", area_id: "office_of_drew" },
+      ],
+      states: {
+        "media_player.updoot": state("media_player.updoot", "idle", { friendly_name: "Updoot" }),
+        "media_player.tv": state("media_player.tv", "playing", { friendly_name: "Office TV" }),
+        "media_player.speaker": state("media_player.speaker", "playing", { friendly_name: "Speaker" }),
+      },
+    });
+
+    withKioskElements(["kiosk-satellite-card", "kiosk-satellite-card-local", "kiosk-redisplay"], () => {
+      const office = classifyArea(fixture, "office_of_drew");
+      assert.deepEqual(office.mediaPlayers, ["media_player.tv", "media_player.speaker"]);
+      assert.deepEqual(
+        office.satellites.map((item) => item.entityId),
+        ["assist_satellite.speaker", "assist_satellite.updoot_assist_satellite"],
+      );
+
+      const cards = buildPopupCards(office, fixture.states ?? {});
+      const kiosk = cards.find((card) => card.entity === "assist_satellite.updoot_assist_satellite");
+      assert.equal(kiosk?.type, "custom:kiosk-satellite-card");
+      assert.equal(kiosk?.device, "updoot1");
+      assert.equal(kiosk?.style, undefined);
+      assert.deepEqual(kiosk?.grid_options, { columns: 12 });
+      assert.equal(cards.some((card) => card.entity === "media_player.updoot"), false);
+
+      const plain = cards.find((card) => card.entity === "assist_satellite.speaker");
+      assert.equal(plain?.type, "custom:area-card-mushroom-template-card");
+      assert.equal(cards.some((card) => card.entity === "media_player.speaker"), true);
+    });
+  });
+
+  it("drops an unavailable paired player when the installed kiosk card is loaded", () => {
+    const fixture = hass({
+      devices: [{ id: "updoot1", area_id: "office_of_drew", manufacturer: "kiosk_satellite" }],
+      entities: [
+        { entity_id: "assist_satellite.updoot_assist_satellite", device_id: "updoot1" },
+        { entity_id: "media_player.updoot", area_id: "office_of_drew" },
+      ],
+      states: {
+        "media_player.updoot": state("media_player.updoot", "unavailable", { friendly_name: "Updoot" }),
+      },
+    });
+
+    withKioskElements(["kiosk-satellite-card"], () => {
+      const office = classifyArea(fixture, "office_of_drew");
+      assert.deepEqual(office.mediaPlayers, []);
+      const cards = buildPopupCards(office, fixture.states ?? {});
+      const kiosk = cards.find((card) => card.entity === "assist_satellite.updoot_assist_satellite");
+      assert.equal(kiosk?.type, "custom:kiosk-satellite-card");
+      assert.equal(kiosk?.style, undefined);
+      assert.equal(cards.some((card) => card.title === "Media players"), false);
+    });
+  });
+
+  it("ignores a locally served kiosk card and the old redisplay name, and keeps the paired player under Media players", () => {
+    const fixture = hass({
+      devices: [
+        { id: "updoot1", area_id: "office_of_drew", manufacturer: "kiosk_satellite" },
+        { id: "updoot-player", manufacturer: "Kiosk Satellite" },
+      ],
+      entities: [
+        { entity_id: "assist_satellite.updoot_assist_satellite", device_id: "updoot1" },
+        { entity_id: "media_player.updoot", device_id: "updoot-player" },
+      ],
+      states: {
+        "media_player.updoot": state("media_player.updoot", "idle", { friendly_name: "Updoot" }),
+      },
+    });
+
+    withKioskElements(["kiosk-satellite-card-local", "kiosk-redisplay", "kiosk-redisplay-local"], () => {
+      const office = classifyArea(fixture, "office_of_drew");
+      assert.deepEqual(office.mediaPlayers, ["media_player.updoot"]);
+      const cards = buildPopupCards(office, fixture.states ?? {});
+      const satellite = cards.find((card) => card.entity === "assist_satellite.updoot_assist_satellite");
+      assert.equal(satellite?.type, "custom:area-card-mushroom-template-card");
+      assert.equal(cards.some((card) => String(card.type).includes("kiosk")), false);
+      assert.equal(cards.find((card) => card.entity === "media_player.updoot")?.type, "media-control");
+    });
   });
 });
 
