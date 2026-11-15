@@ -3,6 +3,7 @@ import { describe, it } from "node:test";
 import {
   automationStateText,
   automationSubtitleSegments,
+  helperStateText,
   placeAutomationSubtitle,
 } from "../src/automation-subtitle";
 import { buildButtonConfig } from "../src/button-config";
@@ -1686,7 +1687,8 @@ describe("disabled automations", () => {
     assert.deepEqual(automationSubtitleSegments(rollups[0]!), [
       { kind: "text", text: "1/2+" },
       { kind: "strike", text: "1" },
-      { kind: "text", text: " auto" },
+      { kind: "text", text: " " },
+      { kind: "icon", icon: "mdi:flash" },
     ]);
     assert.equal(filled.state_content, `{{ ${JSON.stringify(automationStateText(rollups[0]!))} }}`);
     assert.equal(String(filled.state_content).includes("Automations"), false);
@@ -1709,7 +1711,8 @@ describe("disabled automations", () => {
     assert.deepEqual(automationSubtitleSegments(onlyDisabled[0]!), [
       { kind: "text", text: "0/0+" },
       { kind: "strike", text: "1" },
-      { kind: "text", text: " auto" },
+      { kind: "text", text: " " },
+      { kind: "icon", icon: "mdi:flash" },
     ]);
     assert.equal(onlyDisabledButton.state_content, `{{ ${JSON.stringify(automationStateText(onlyDisabled[0]!))} }}`);
 
@@ -1754,7 +1757,8 @@ describe("disabled automations", () => {
     assert.equal(rollupLabel(allOff[0]!), "Automations 0/3 on, 0 disabled");
     assert.equal(dotTooltipLabel("bubble-sub-button area-dot-automations-off", allOff), "Automations 0/3 on, 0 disabled");
     assert.deepEqual(automationSubtitleSegments(allOff[0]!), [
-      { kind: "text", text: "0/3 auto" },
+      { kind: "text", text: "0/3 " },
+      { kind: "icon", icon: "mdi:flash" },
     ]);
 
     const offAndDisabled = sectionRollups(
@@ -1786,7 +1790,8 @@ describe("disabled automations", () => {
     assert.deepEqual(automationSubtitleSegments(disabledNotInTotal[0]!), [
       { kind: "text", text: "1/2+" },
       { kind: "strike", text: "3" },
-      { kind: "text", text: " auto" },
+      { kind: "text", text: " " },
+      { kind: "icon", icon: "mdi:flash" },
     ]);
     assert.equal(disabledNotInTotal[0]?.active, 1);
     assert.equal(disabledNotInTotal[0]?.off, 1);
@@ -2187,7 +2192,8 @@ describe("climate subtitle", () => {
     const config = button(sections, states);
     const alone = sectionRollups(sections, states)[0]!;
     assert.deepEqual(automationSubtitleSegments(alone), [
-      { kind: "text", text: "1/1 auto" },
+      { kind: "text", text: "1/1 " },
+      { kind: "icon", icon: "mdi:flash" },
     ]);
     assert.equal(String(automationStateText(alone)).includes("+0"), false);
     assert.equal(config.state_content, `{{ ${JSON.stringify(automationStateText(alone))} }}`);
@@ -2224,7 +2230,8 @@ describe("climate subtitle", () => {
     const rollup = sectionRollups(sections, states).find((item) => item.id === "automations");
     assert.ok(rollup);
     assert.deepEqual(automationSubtitleSegments(rollup), [
-      { kind: "text", text: "2/3 auto" },
+      { kind: "text", text: "2/3 " },
+      { kind: "icon", icon: "mdi:flash" },
     ]);
     assert.equal(String(automationStateText(rollup)).includes("+0"), false);
     assert.equal(
@@ -2251,7 +2258,12 @@ describe("climate subtitle", () => {
       { ...emptySections(), helpers: ["input_boolean.guest", "input_boolean.away", "timer.nap"] },
       states,
     );
-    assert.equal(helpersOnly.state_content, '{{ "1/2 helpers" }}');
+    const helperRollup = sectionRollups(
+      { ...emptySections(), helpers: ["input_boolean.guest", "input_boolean.away", "timer.nap"] },
+      states,
+    ).find((item) => item.id === "helpers");
+    assert.ok(helperRollup);
+    assert.equal(helpersOnly.state_content, `{{ ${JSON.stringify(helperStateText(helperRollup))} }}`);
     const helperDots = helpersOnly.sub_button as Array<{ css_class: string }>;
     assert.equal(helperDots.some((dot) => dot.css_class.includes("helpers")), false);
 
@@ -2262,7 +2274,12 @@ describe("climate subtitle", () => {
         "input_boolean.guest": state("input_boolean.guest", "off"),
       },
     );
-    assert.equal(noneOn.state_content, '{{ "0/2 helpers" }}');
+    const noneOnRollup = sectionRollups(
+      { ...emptySections(), helpers: ["input_boolean.guest", "input_boolean.away"] },
+      { ...states, "input_boolean.guest": state("input_boolean.guest", "off") },
+    ).find((item) => item.id === "helpers");
+    assert.ok(noneOnRollup);
+    assert.equal(noneOn.state_content, `{{ ${JSON.stringify(helperStateText(noneOnRollup))} }}`);
 
     const withClimate = button(
       {
@@ -2272,7 +2289,15 @@ describe("climate subtitle", () => {
       },
       states,
     );
-    assert.equal(withClimate.state_content, '{{ "Temperature 21 °C · 1/2 helpers" }}');
+    const climateHelpers = sectionRollups(
+      { ...emptySections(), helpers: ["input_boolean.guest", "input_boolean.away"] },
+      states,
+    ).find((item) => item.id === "helpers");
+    assert.ok(climateHelpers);
+    assert.equal(
+      withClimate.state_content,
+      `{{ ${JSON.stringify(`Temperature 21 °C · ${helperStateText(climateHelpers)}`)} }}`,
+    );
 
     const both = button(
       {
@@ -2289,7 +2314,7 @@ describe("climate subtitle", () => {
     assert.ok(automation);
     assert.equal(
       both.state_content,
-      `{{ ${JSON.stringify(`1/2 helpers, ${automationStateText(automation)}`)} }}`,
+      `{{ ${JSON.stringify(`${helperStateText(climateHelpers)}, ${automationStateText(automation)}`)} }}`,
     );
 
     const withDisabled = buildButtonConfig({
@@ -2314,7 +2339,7 @@ describe("climate subtitle", () => {
     assert.ok(disabledRollup);
     assert.equal(
       withDisabled.state_content,
-      `{{ ${JSON.stringify(`Temperature 21 °C · 1/1 helpers, ${automationStateText(disabledRollup)}`)} }}`,
+      `{{ ${JSON.stringify(`Temperature 21 °C · ${helperStateText(sectionRollups({ ...emptySections(), helpers: ["input_boolean.guest"] }, states)[0]!)}, ${automationStateText(disabledRollup)}`)} }}`,
     );
     assert.equal(withDisabled.scrolling_effect, false);
     assert.equal(both.scrolling_effect, false);
@@ -2416,7 +2441,8 @@ describe("climate subtitle", () => {
     const rollup = sectionRollups(visible, states).find((item) => item.id === "automations");
     assert.ok(rollup);
     assert.deepEqual(automationSubtitleSegments(rollup), [
-      { kind: "text", text: "1/2 auto" },
+      { kind: "text", text: "1/2 " },
+      { kind: "icon", icon: "mdi:flash" },
     ]);
     assert.equal(config.state_content, `{{ ${JSON.stringify(automationStateText(rollup))} }}`);
     const titles = buildPopupCards(visible, states, room)
@@ -2429,26 +2455,37 @@ describe("climate subtitle", () => {
     assert.equal(dots.some((dot) => dot.css_class.includes("climate")), false);
   });
 
-  it("strikes only the disabled count and leaves a plain automation line alone", () => {
-    const struck = placeHost("1/2+\u20613\u2062 auto");
+  it("places the count icons and strikes only the disabled count", () => {
+    const struck = placeHost("1/2+\u20613\u2062 \u2063");
     assert.equal(placeAutomationSubtitle(struck as unknown as HTMLElement), true);
     assert.deepEqual(
-      struck.kids.map((node) => [node.tag, node.textContent, node.styleMap["text-decoration"]]),
+      struck.kids.map((node) => [node.tag, node.textContent, node.attrs.icon, node.styleMap["text-decoration"]]),
       [
-        ["#text", "1/2+", undefined],
-        ["s", "3", "line-through"],
-        ["#text", " auto", undefined],
+        ["#text", "1/2+", undefined, undefined],
+        ["s", "3", undefined, "line-through"],
+        ["#text", " ", undefined, undefined],
+        ["ha-icon", "", "mdi:flash", undefined],
       ],
     );
     assert.equal(struck.kids[1]?.className, "area-card-automation-disabled");
-    assert.equal(struck.kids.some((node) => node.tag === "ha-icon"), false);
+    assert.equal(struck.kids[3]?.className, "area-card-subtitle-icon");
+    assert.equal(struck.kids[3]?.styleMap["--mdc-icon-size"], "12px");
     assert.equal(placeAutomationSubtitle(struck as unknown as HTMLElement), false);
     assert.equal(struck.replacements, 1);
 
-    const plain = placeHost("2/3 auto");
+    const plain = placeHost("2/3 \u2063");
+    assert.equal(placeAutomationSubtitle(plain as unknown as HTMLElement), true);
+    assert.equal(plain.kids.find((node) => node.tag === "ha-icon")?.attrs.icon, "mdi:flash");
     assert.equal(placeAutomationSubtitle(plain as unknown as HTMLElement), false);
-    assert.equal(plain.replacements, 0);
-    assert.equal(plain.kids.some((node) => node.tag === "ha-icon"), false);
+
+    const helpers = placeHost("1/2 \u2064");
+    assert.equal(placeAutomationSubtitle(helpers as unknown as HTMLElement), true);
+    assert.equal(helpers.kids.find((node) => node.tag === "ha-icon")?.attrs.icon, "mdi:cog");
+    assert.equal(placeAutomationSubtitle(helpers as unknown as HTMLElement), false);
+
+    const words = placeHost("Temperature 21 °C");
+    assert.equal(placeAutomationSubtitle(words as unknown as HTMLElement), false);
+    assert.equal(words.replacements, 0);
   });
 
   it("omits state_content when the room has no climate, helpers, or automations", () => {
