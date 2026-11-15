@@ -9,14 +9,16 @@ const GRID_SELECTOR = `.${BUBBLE_CARDS_GRID} > .card`;
 type FakeNode = {
   id: string;
   tag: string;
+  tagName: string;
   textContent: string;
   className: string;
   title: string;
   classList: { contains(name: string): boolean };
   config?: Record<string, unknown>;
   dataset: Record<string, string>;
-  pinCycle?: (entityId: string) => void;
+  pinSelect?: (entityId: string, mode: PinMode) => void;
   children: FakeNode[];
+  parentElement: FakeNode | null;
   firstChild: FakeNode | null;
   firstElementChild: FakeNode | null;
   attributes: Record<string, string>;
@@ -31,6 +33,13 @@ type FakeNode = {
   fire(type: string): boolean;
 };
 
+function matchesSimple(node: FakeNode, selector: string): boolean {
+  if (selector === "ha-icon") return node.tag === "ha-icon";
+  if (selector === "span") return node.tag === "span";
+  if (selector.startsWith(".")) return node.classList.contains(selector.slice(1));
+  return false;
+}
+
 function syncEnds(cell: FakeNode): void {
   cell.firstChild = cell.children[0] ?? null;
   cell.firstElementChild = cell.children[0] ?? null;
@@ -41,12 +50,14 @@ function fakeNode(className = "", config?: Record<string, unknown>): FakeNode {
   const node: FakeNode = {
     id: "",
     tag: "",
+    tagName: "",
     textContent: "",
     className,
     title: "",
     config,
     dataset: {},
     children: [],
+    parentElement: null,
     firstChild: null,
     firstElementChild: null,
     attributes: {},
@@ -65,27 +76,46 @@ function fakeNode(className = "", config?: Record<string, unknown>): FakeNode {
       listeners.set(type, listener);
     },
     append(...children) {
-      node.children.push(...children);
+      for (const child of children) {
+        child.parentElement = node;
+        node.children.push(child);
+      }
       syncEnds(node);
     },
     querySelector(selector: string) {
       return node.querySelectorAll(selector)[0] ?? null;
     },
     querySelectorAll(selector: string) {
-      if (selector === ":scope > .area-card-pin-switch") {
-        return node.children.filter((child) => child.classList.contains("area-card-pin-switch"));
+      if (selector.startsWith(":scope > ")) {
+        const inner = selector.slice(":scope > ".length);
+        return node.children.filter((child) => matchesSimple(child, inner));
       }
-      if (selector === "ha-icon") return node.children.filter((child) => child.tag === "ha-icon");
-      return [];
+      const found: FakeNode[] = [];
+      const walk = (current: FakeNode) => {
+        for (const child of current.children) {
+          if (matchesSimple(child, selector)) found.push(child);
+          walk(child);
+        }
+      };
+      walk(node);
+      return found;
     },
     insertBefore(child, before) {
       const existing = node.children.indexOf(child);
       if (existing !== -1) node.children.splice(existing, 1);
       const index = before ? node.children.indexOf(before) : node.children.length;
       node.children.splice(index < 0 ? node.children.length : index, 0, child);
+      child.parentElement = node;
       syncEnds(node);
     },
-    remove() {},
+    remove() {
+      const parent = node.parentElement;
+      if (!parent) return;
+      const index = parent.children.indexOf(node);
+      if (index !== -1) parent.children.splice(index, 1);
+      syncEnds(parent);
+      node.parentElement = null;
+    },
     fire(type: string) {
       let stopped = false;
       listeners.get(type)?.({
@@ -101,6 +131,23 @@ function fakeNode(className = "", config?: Record<string, unknown>): FakeNode {
 
 function iconOf(node: FakeNode): string | null {
   return node.querySelector("ha-icon")?.getAttribute("icon") ?? null;
+}
+
+function triggerOf(control: FakeNode): FakeNode {
+  const trigger = control.querySelector(":scope > .area-card-pin-switch-trigger");
+  if (!trigger) throw new Error("missing pin trigger");
+  return trigger;
+}
+
+function menuOptions(control: FakeNode): Array<{ mode: string; label: string | null; icon: string | null; checked: string | null }> {
+  const menu = control.querySelector(":scope > .area-card-pin-menu");
+  if (!menu) return [];
+  return menu.children.map((option) => ({
+    mode: option.dataset.pinMode ?? "",
+    label: option.querySelector("span")?.textContent ?? null,
+    icon: iconOf(option),
+    checked: option.getAttribute("aria-checked"),
+  }));
 }
 
 function cellWith(config: Record<string, unknown> | null): FakeNode {
@@ -150,6 +197,7 @@ describe("syncPinToggles", () => {
         created.push(tag);
         const node = fakeNode();
         node.tag = tag;
+        node.tagName = tag.toUpperCase();
         return node as unknown as HTMLElement;
       },
     } as unknown as Document;
@@ -159,7 +207,7 @@ describe("syncPinToggles", () => {
     globalThis.document = previousDocument;
   });
 
-  it("puts one cycle button on entity rows and skips titles and chips", () => {
+  it("puts one menu button on entity rows and skips titles and chips", () => {
     created.length = 0;
     const title = cellWith({ type: "custom:area-card-section-title", title: "Lights" });
     const chips = cellWith({ type: "custom:area-card-mushroom-chips-card", chips: [] });
@@ -174,66 +222,96 @@ describe("syncPinToggles", () => {
       ["light.kitchen", "always"],
       ["media_player.tv", "when-on"],
     ]);
-    const cycled: string[] = [];
+    const selected: Array<{ entityId: string; mode: PinMode }> = [];
 
     syncPinToggles(root as unknown as ParentNode, {
       editing: true,
       modeOf: (entityId) => modes.get(entityId) ?? "hidden",
-      onCycle: (entityId) => cycled.push(entityId),
+      onSelect: (entityId, mode) => selected.push({ entityId, mode }),
     });
 
     assert.deepEqual(selectors, [GRID_SELECTOR]);
-    assert.deepEqual(created, ["button", "ha-icon", "button", "ha-icon", "button", "ha-icon"]);
     assert.equal(created.includes("ha-switch"), false);
+    assert.equal(created.includes("div"), true);
     assert.equal(title.children.some((child) => child.classList.contains("area-card-pin-switch")), false);
     assert.equal(chips.children.some((child) => child.classList.contains("area-card-pin-switch")), false);
 
     const lightSwitch = light.children[0];
     const mediaSwitch = media.children[0];
     const coverSwitch = cover.children[0];
+    const lightTrigger = triggerOf(lightSwitch);
+    const mediaTrigger = triggerOf(mediaSwitch);
+    const coverTrigger = triggerOf(coverSwitch);
     assert.equal(lightSwitch.className, "area-card-pin-switch");
     assert.equal(mediaSwitch.className, "area-card-pin-switch");
     assert.equal(coverSwitch.className, "area-card-pin-switch");
     assert.equal(lightSwitch.dataset.pinEntity, "light.kitchen");
     assert.equal(lightSwitch.dataset.pinMode, "always");
-    assert.equal(lightSwitch.getAttribute("aria-label"), "Always on the area card");
-    assert.equal(lightSwitch.title, "Always on the area card");
-    assert.equal(iconOf(lightSwitch), "mdi:pin");
+    assert.equal(lightTrigger.getAttribute("aria-haspopup"), "menu");
+    assert.equal(lightTrigger.getAttribute("aria-expanded"), "false");
+    assert.equal(lightTrigger.getAttribute("aria-label"), "Always on the area card");
+    assert.equal(lightTrigger.title, "Always on the area card");
+    assert.equal(iconOf(lightTrigger), "mdi:pin");
     assert.equal(mediaSwitch.dataset.pinMode, "when-on");
-    assert.equal(mediaSwitch.getAttribute("aria-label"), "On the area card while on");
-    assert.equal(mediaSwitch.title, "On the area card while on");
-    assert.equal(iconOf(mediaSwitch), "mdi:eye-check");
+    assert.equal(mediaTrigger.getAttribute("aria-label"), "On the area card while on");
+    assert.equal(mediaTrigger.title, "On the area card while on");
+    assert.equal(iconOf(mediaTrigger), "mdi:eye-check");
     assert.equal(coverSwitch.dataset.pinEntity, "cover.shade");
     assert.equal(coverSwitch.dataset.pinMode, "hidden");
-    assert.equal(coverSwitch.getAttribute("aria-label"), "Hidden on the area card");
-    assert.equal(coverSwitch.title, "Hidden on the area card");
-    assert.equal(iconOf(coverSwitch), "mdi:eye-off");
+    assert.equal(coverTrigger.getAttribute("aria-label"), "Hidden on the area card");
+    assert.equal(coverTrigger.title, "Hidden on the area card");
+    assert.equal(iconOf(coverTrigger), "mdi:eye-off");
+    assert.deepEqual(menuOptions(lightSwitch), [
+      { mode: "hidden", label: "Hidden on the area card", icon: "mdi:eye-off", checked: "false" },
+      { mode: "always", label: "Always on the area card", icon: "mdi:pin", checked: "true" },
+      { mode: "when-on", label: "On the area card while on", icon: "mdi:eye-check", checked: "false" },
+    ]);
+    assert.deepEqual(menuOptions(coverSwitch), [
+      { mode: "hidden", label: "Hidden on the area card", icon: "mdi:eye-off", checked: "true" },
+      { mode: "always", label: "Always on the area card", icon: "mdi:pin", checked: "false" },
+      { mode: "when-on", label: "On the area card while on", icon: "mdi:eye-check", checked: "false" },
+    ]);
     assert.equal(light.children[1].config?.type, "custom:area-card-light-row");
 
     assert.equal(mediaSwitch.fire("pointerdown"), true);
-    assert.equal(mediaSwitch.fire("click"), true);
-    assert.deepEqual(cycled, ["media_player.tv"]);
+    assert.equal(mediaTrigger.fire("click"), true);
+    assert.equal(mediaTrigger.getAttribute("aria-expanded"), "true");
+    assert.deepEqual(selected, []);
+    const whileOn = mediaSwitch.querySelector(":scope > .area-card-pin-menu")?.children.find(
+      (option) => option.dataset.pinMode === "when-on",
+    );
+    assert.equal(whileOn?.fire("click"), true);
+    assert.deepEqual(selected, [{ entityId: "media_player.tv", mode: "when-on" }]);
+    assert.equal(mediaTrigger.getAttribute("aria-expanded"), "false");
 
     const again = created.length;
-    const recycled: string[] = [];
+    const reselected: Array<{ entityId: string; mode: PinMode }> = [];
     modes.set("light.kitchen", "when-on");
+    lightTrigger.setAttribute("aria-expanded", "true");
     syncPinToggles(root as unknown as ParentNode, {
       editing: true,
       modeOf: (entityId) => modes.get(entityId) ?? "hidden",
-      onCycle: (entityId) => recycled.push(entityId),
+      onSelect: (entityId, mode) => reselected.push({ entityId, mode }),
     });
     assert.equal(created.length, again);
     assert.equal(light.children[0], lightSwitch);
     assert.equal(light.querySelector(":scope > .area-card-pin-switch"), lightSwitch);
     assert.equal(lightSwitch.dataset.pinMode, "when-on");
-    assert.equal(iconOf(lightSwitch), "mdi:eye-check");
-    assert.equal(lightSwitch.fire("click"), true);
-    assert.deepEqual(recycled, ["light.kitchen"]);
+    assert.equal(iconOf(lightTrigger), "mdi:eye-check");
+    assert.equal(lightTrigger.getAttribute("aria-expanded"), "true");
+    assert.equal(menuOptions(lightSwitch)[2]?.checked, "true");
+    assert.equal(lightTrigger.fire("click"), true);
+    assert.deepEqual(reselected, []);
+    const hidden = lightSwitch.querySelector(":scope > .area-card-pin-menu")?.children.find(
+      (option) => option.dataset.pinMode === "hidden",
+    );
+    assert.equal(hidden?.fire("click"), true);
+    assert.deepEqual(reselected, [{ entityId: "light.kitchen", mode: "hidden" }]);
 
     syncPinToggles(root as unknown as ParentNode, {
       editing: false,
       modeOf: () => "always",
-      onCycle: () => {},
+      onSelect: () => {},
     });
     assert.equal(light.children.some((child) => child.classList.contains("area-card-pin-switch")), false);
     assert.equal(media.children.some((child) => child.classList.contains("area-card-pin-switch")), false);
@@ -246,13 +324,20 @@ describe("syncPinToggles", () => {
     syncPinToggles(root as unknown as ParentNode, {
       editing: true,
       modeOf: () => "background",
-      onCycle: () => {},
+      onSelect: () => {},
     });
     const button = camera.children[0];
+    const trigger = triggerOf(button);
     assert.equal(button.dataset.pinMode, "background");
-    assert.equal(button.getAttribute("aria-label"), "Use as area background");
-    assert.equal(button.title, "Use as area background");
-    assert.equal(iconOf(button), "mdi:image");
+    assert.equal(trigger.getAttribute("aria-label"), "Use as area background");
+    assert.equal(trigger.title, "Use as area background");
+    assert.equal(iconOf(trigger), "mdi:image");
+    assert.deepEqual(menuOptions(button), [
+      { mode: "hidden", label: "Hidden on the area card", icon: "mdi:eye-off", checked: "false" },
+      { mode: "background", label: "Use as area background", icon: "mdi:image", checked: "true" },
+      { mode: "always", label: "Always on the area card", icon: "mdi:pin", checked: "false" },
+      { mode: "when-on", label: "On the area card while on", icon: "mdi:eye-check", checked: "false" },
+    ]);
   });
 
   it("does not match the unprefixed bubble grid class", () => {
@@ -265,7 +350,7 @@ describe("syncPinToggles", () => {
     syncPinToggles(root as unknown as ParentNode, {
       editing: true,
       modeOf: () => "always",
-      onCycle: () => {},
+      onSelect: () => {},
     });
     assert.equal(light.children.some((child) => child.classList.contains("area-card-pin-switch")), false);
   });
@@ -284,7 +369,7 @@ describe("syncPinToggles", () => {
         return [];
       },
     };
-    const options = { editing: true, modeOf: (): PinMode => "hidden", onCycle: () => {} };
+    const options = { editing: true, modeOf: (): PinMode => "hidden", onSelect: () => {} };
     syncPinToggles(root as unknown as ParentNode, options);
     syncPinToggles(root as unknown as ParentNode, options);
     assert.equal(nodes.length, 1);
@@ -300,6 +385,9 @@ describe("syncPinToggles", () => {
     assert.match(css, /color:\s*var\(--primary-text-color\)/);
     assert.match(css, /color:\s*var\(--primary-color\)/);
     assert.match(css, /\[data-pin-mode="hidden"\][^}]*opacity:\s*0\.45/);
+    assert.match(css, /\.area-card-pin-menu/);
+    assert.match(css, /\.area-card-pin-option/);
+    assert.match(css, /\[aria-checked="true"\]/);
     assert.equal(css.includes(":not(.area-card-bubbles-grid-container"), false);
   });
 });

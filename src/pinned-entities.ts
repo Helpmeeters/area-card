@@ -108,22 +108,35 @@ export function pinMode(pins: AreaPins, entityId: string): PinMode {
   return "hidden";
 }
 
+/** Cameras include the background choice. Other entities never land on it. */
+export function pinModeChoices(entityId: string): readonly PinMode[] {
+  return isCameraEntity(entityId) ? CAMERA_CYCLE : ENTITY_CYCLE;
+}
+
+/**
+ * Move one entity to `mode`, leaving every other id where it is.
+ * A non-camera asked for background becomes hidden. The input is not changed.
+ */
+export function setPinMode(pins: AreaPins, entityId: string, mode: PinMode): AreaPins {
+  const always = pins.always.filter((id) => id !== entityId);
+  const whenOn = pins.whenOn.filter((id) => id !== entityId);
+  const background = list(pins.background).filter((id) => id !== entityId);
+  const next = pinModeChoices(entityId).includes(mode) ? mode : "hidden";
+  if (next === "always") always.push(entityId);
+  else if (next === "when-on") whenOn.push(entityId);
+  else if (next === "background") background.push(entityId);
+  return { always, whenOn, background };
+}
+
 /**
  * Cameras walk hidden, background, always, while on, then hidden.
  * Other entities walk hidden, always, while on, then hidden, and never land on background.
  */
 export function cyclePin(pins: AreaPins, entityId: string): AreaPins {
-  const mode = pinMode(pins, entityId);
-  const always = pins.always.filter((id) => id !== entityId);
-  const whenOn = pins.whenOn.filter((id) => id !== entityId);
-  const background = list(pins.background).filter((id) => id !== entityId);
-  const order = isCameraEntity(entityId) ? CAMERA_CYCLE : ENTITY_CYCLE;
-  const index = order.indexOf(mode);
+  const order = pinModeChoices(entityId);
+  const index = order.indexOf(pinMode(pins, entityId));
   const next = order[((index === -1 ? 0 : index) + 1) % order.length];
-  if (next === "always") always.push(entityId);
-  else if (next === "when-on") whenOn.push(entityId);
-  else if (next === "background") background.push(entityId);
-  return { always, whenOn, background };
+  return setPinMode(pins, entityId, next);
 }
 
 function nonEmptyString(value: unknown): string | null {

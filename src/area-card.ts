@@ -20,10 +20,10 @@ import "./floors-card";
 import "./light-row";
 import "./section-title";
 import {
-  cyclePin,
   layoutPinnedCards,
   pinEntityId,
   pinMode,
+  setPinMode,
   pinnedEdgeRadius,
   pinnedKey,
   pinnedRowsSideBySide,
@@ -31,6 +31,7 @@ import {
   pinnedSideBySideHostStyles,
   pinnedSideBySideStyles,
   selectPinnedCards,
+  type PinMode,
   type PinnedEdge,
   type PinnedLayoutWidth,
 } from "./pinned-entities";
@@ -584,7 +585,7 @@ class AreaCard extends HTMLElement {
     syncPinToggles(root, {
       editing: this.pinEditing,
       modeOf: (entityId) => pinMode(cachedPins(areaId), entityId),
-      onCycle: (entityId) => this.pinCycled(areaId, entityId),
+      onSelect: (entityId, mode) => this.pinSelected(areaId, entityId, mode),
     });
   }
 
@@ -622,10 +623,12 @@ class AreaCard extends HTMLElement {
     return button;
   }
 
-  private pinCycled(areaId: string, entityId: string): void {
+  private pinSelected(areaId: string, entityId: string, mode: PinMode): void {
     const hass = this._hass;
     if (!hass || this._config?.area !== areaId) return;
-    const next = cyclePin(cachedPins(areaId), entityId);
+    const current = cachedPins(areaId);
+    if (pinMode(current, entityId) === mode) return;
+    const next = setPinMode(current, entityId, mode);
     void saveAreaPins(hass, areaId, next).then(
       () => {
         if (this._hass !== hass || this._config?.area !== areaId) return;

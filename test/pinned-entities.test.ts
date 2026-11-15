@@ -4,6 +4,8 @@ import {
   PINNED_KEY_PREFIX,
   cyclePin,
   isDoubleTallPinnedCard,
+  pinModeChoices,
+  setPinMode,
   layoutPinnedCards,
   parseAreaPins,
   pinEntityId,
@@ -143,6 +145,50 @@ describe("serializeAreaPins", () => {
     assert.deepEqual(parseAreaPins([{ id: "camera.webcam", mode: JSON.stringify("background") }]), emptyPins());
     const encoded = parseAreaPins(['{"id":"camera.webcam","mode":"background"}']);
     assert.deepEqual(encoded.background, []);
+  });
+});
+
+describe("setPinMode", () => {
+  it("lists background only for a camera", () => {
+    assert.deepEqual(pinModeChoices("light.desk"), ["hidden", "always", "when-on"]);
+    assert.deepEqual(pinModeChoices("camera.webcam"), ["hidden", "background", "always", "when-on"]);
+  });
+
+  it("moves one entity to the chosen mode and leaves the others", () => {
+    const pins = { always: ["switch.b"], whenOn: ["media_player.tv"], background: [] };
+    assert.deepEqual(setPinMode(pins, "light.a", "always"), {
+      always: ["switch.b", "light.a"],
+      whenOn: ["media_player.tv"],
+      background: [],
+    });
+    assert.deepEqual(setPinMode(pins, "switch.b", "when-on"), {
+      always: [],
+      whenOn: ["media_player.tv", "switch.b"],
+      background: [],
+    });
+    assert.deepEqual(setPinMode(pins, "media_player.tv", "hidden"), {
+      always: ["switch.b"],
+      whenOn: [],
+      background: [],
+    });
+    assert.deepEqual(pins, { always: ["switch.b"], whenOn: ["media_player.tv"], background: [] });
+  });
+
+  it("gives a camera a background pin and drops that mode for anything else", () => {
+    assert.deepEqual(setPinMode(emptyPins(), "camera.webcam", "background"), {
+      always: [],
+      whenOn: [],
+      background: ["camera.webcam"],
+    });
+    const stuck = setPinMode({ always: [], whenOn: [], background: ["light.desk"] }, "light.desk", "background");
+    assert.equal(pinMode(stuck, "light.desk"), "hidden");
+    assert.deepEqual(stuck, emptyPins());
+    const replaced = setPinMode(
+      { always: ["camera.webcam"], whenOn: [], background: [] },
+      "camera.webcam",
+      "background",
+    );
+    assert.deepEqual(replaced, { always: [], whenOn: [], background: ["camera.webcam"] });
   });
 });
 
