@@ -26,9 +26,14 @@ export function readViewportWidth(): number {
   return 1200;
 }
 
+/** Popup dialog width. Desktop is fixed; a narrower screen uses the viewport. */
+export function popupOuterWidth(viewportWidth: number): number {
+  return viewportWidth >= DESKTOP_BREAKPOINT ? DESKTOP_POPUP : viewportWidth;
+}
+
 export function halfRowTextWidth(viewportWidth: number, led = false): number {
   const desktop = viewportWidth >= DESKTOP_BREAKPOINT;
-  const outer = desktop ? DESKTOP_POPUP : viewportWidth;
+  const outer = popupOuterWidth(viewportWidth);
   const card = (outer - POPUP_PADDING - COLUMN_GAP) / 2;
   return card - ROW_CHROME - (desktop ? 0 : MOBILE_CLIP) - (led ? LED_RESERVE : 0);
 }

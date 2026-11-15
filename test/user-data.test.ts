@@ -4,11 +4,14 @@ import { floorExpandedKey } from "../src/floor-state";
 import { pinnedKey, serializeAreaPins, type AreaPins } from "../src/pinned-entities";
 import type { ClassifierHass } from "../src/sections";
 import {
+  BATTERY_MODE_KEY,
+  cachedBatteryMode,
   cachedFloorExpanded,
   cachedPins,
   ensureUserData,
   resetUserDataForTests,
   saveAreaPins,
+  saveBatteryMode,
   saveFloorExpanded,
   subscribeUserData,
 } from "../src/user-data";
@@ -474,5 +477,20 @@ describe("frontend user data", { concurrency: 1 }, () => {
     calls[1]({ value: { [pinnedKey("kitchen")]: ["light.b"] } });
     await next;
     assert.deepEqual(cachedPins("kitchen"), { always: ["light.b"], whenOn: [], background: [] });
+  });
+
+  it("keeps one battery mode for the user and forgets it when the key is gone", async () => {
+    const harness = createHarness();
+    const pending = ensureUserData(harness.hass);
+    harness.emit({ [BATTERY_MODE_KEY]: "yellow", [pinnedKey("kitchen")]: ["light.a"] });
+    await pending;
+    assert.equal(cachedBatteryMode(), "yellow");
+    await saveBatteryMode(harness.hass, "red");
+    assert.equal(cachedBatteryMode(), "red");
+    const saved = harness.calls.find((call) => call.key === BATTERY_MODE_KEY);
+    assert.equal(saved?.value, "red");
+    harness.emit({ [pinnedKey("kitchen")]: ["light.a"] });
+    assert.equal(cachedBatteryMode(), "off");
+    assert.equal(cachedPins("kitchen").always[0], "light.a");
   });
 });

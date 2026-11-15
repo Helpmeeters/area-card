@@ -2,7 +2,7 @@ import { entityTitle } from "./popup-cards";
 import type { EntityState } from "./sections";
 
 /**
- * One line under the room name, from the same climate sensors the popup lists.
+ * One line under the room name, from temperature and humidity sensors only.
  * An empty string means the button should not set state_content.
  */
 export function climateSubtitle(
@@ -14,7 +14,7 @@ export function climateSubtitle(
   const pieces: string[] = [];
   for (const id of entities) {
     const entityState = states[id];
-    if (!entityState) continue;
+    if (!entityState || !isTemperatureOrHumidity(id, entityState)) continue;
     const title = entityTitle(id, states as Record<string, EntityState>, roomName);
     const label = title.startsWith("{{") ? "" : title;
     const value = formattedValue(entityState, formatEntityState);
@@ -22,6 +22,12 @@ export function climateSubtitle(
     pieces.push(label ? `${label} ${value}` : value);
   }
   return pieces.join(" · ");
+}
+
+function isTemperatureOrHumidity(entityId: string, entityState: EntityState): boolean {
+  if (entityId.split(".")[0] !== "sensor") return false;
+  const deviceClass = entityState.attributes?.device_class;
+  return deviceClass === "temperature" || deviceClass === "humidity";
 }
 
 function formattedValue(entityState: EntityState, formatEntityState?: (state: EntityState) => string): string {

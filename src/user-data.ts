@@ -4,6 +4,7 @@
  * itself, so this module subscribes with `frontend/subscribe_user_data`.
  * The first snapshot copies matching localStorage keys once.
  */
+import { parseBatteryMode, type BatteryMode } from "./battery";
 import { FLOOR_EXPANDED_KEY_PREFIX, floorExpandedKey } from "./floor-state";
 import {
   PINNED_KEY_PREFIX,
@@ -13,6 +14,9 @@ import {
   type AreaPins,
 } from "./pinned-entities";
 import type { ClassifierHass } from "./sections";
+
+/** One battery filter for the signed-in user, shared by every area card. */
+export const BATTERY_MODE_KEY = "area-card-battery";
 
 interface FrontendHass {
   user?: { id?: string };
@@ -27,7 +31,8 @@ interface FrontendHass {
 
 type CacheEntry =
   | { kind: "pins"; pins: AreaPins }
-  | { kind: "floor"; expanded: boolean };
+  | { kind: "floor"; expanded: boolean }
+  | { kind: "battery"; mode: BatteryMode };
 
 interface WriteChain {
   count: number;
@@ -65,8 +70,12 @@ function isFloorKey(key: string): boolean {
   return key.startsWith(FLOOR_EXPANDED_KEY_PREFIX);
 }
 
+function isBatteryKey(key: string): boolean {
+  return key === BATTERY_MODE_KEY;
+}
+
 function isAreaCardKey(key: string): boolean {
-  return isPinKey(key) || isFloorKey(key);
+  return isPinKey(key) || isFloorKey(key) || isBatteryKey(key);
 }
 
 function asDict(value: unknown): Record<string, unknown> | undefined {
@@ -111,6 +120,7 @@ function floorBoolean(value: unknown): boolean {
 
 function departsFromDefault(entry: CacheEntry): boolean {
   if (entry.kind === "floor") return entry.expanded === false;
+  if (entry.kind === "battery") return entry.mode !== "off";
   return entry.pins.always.length > 0 || entry.pins.whenOn.length > 0 || pinBackground(entry.pins).length > 0;
 }
 
@@ -135,9 +145,18 @@ function commitFloor(key: string, expanded: boolean): void {
   if (previous !== expanded) notify(key);
 }
 
+function commitBattery(key: string, mode: BatteryMode): void {
+  const prev = cache.get(key);
+  if (prev?.kind === "battery" && prev.mode === mode) return;
+  const previous = prev?.kind === "battery" ? prev.mode : "off";
+  cache.set(key, { kind: "battery", mode });
+  if (previous !== mode) notify(key);
+}
+
 function commitSent(key: string, value: unknown): void {
   if (isPinKey(key)) commitPins(key, parseAreaPins(value));
   else if (isFloorKey(key)) commitFloor(key, floorBoolean(value));
+  else if (isBatteryKey(key)) commitBattery(key, parseBatteryMode(value));
 }
 
 function forget(key: string): void {
@@ -164,6 +183,7 @@ function applyDocument(doc: Record<string, unknown>, gen: number): void {
     seen.add(key);
     if (isWriting(key)) continue;
     if (isPinKey(key)) commitPins(key, parseAreaPins(raw));
+    else if (isBatteryKey(key)) commitBattery(key, parseBatteryMode(raw));
     else commitFloor(key, floorBoolean(raw));
   }
   if (gen !== generation) return;
@@ -225,6 +245,13 @@ async function migrateKey(
   try {
     if (isPinKey(key)) {
       await setValue(api, key, serializeAreaPins(parseAreaPins(raw)));
+    } else if (isBatteryKey(key)) {
+      const mode = parseBatteryMode(raw);
+      if (raw !== mode) {
+        removeStored(storage, key);
+        return;
+      }
+      await setValue(api, key, mode);
     } else if (raw === "true" || raw === "false") {
       await setValue(api, key, raw === "true");
     } else {
@@ -485,6 +512,16 @@ export function saveAreaPins(hass: ClassifierHass, areaId: string, pins: AreaPin
 
 export function saveFloorExpanded(hass: ClassifierHass, floorId: string, expanded: boolean): Promise<void> {
   return setValue(hassApi(hass), floorExpandedKey(floorId), expanded);
+}
+
+export function cachedBatteryMode(): BatteryMode {
+  const entry = cache.get(BATTERY_MODE_KEY);
+  if (!entry || entry.kind !== "battery") return "off";
+  return entry.mode;
+}
+
+export function saveBatteryMode(hass: ClassifierHass, mode: BatteryMode): Promise<void> {
+  return setValue(hassApi(hass), BATTERY_MODE_KEY, mode);
 }
 
 export function subscribeUserData(listener: (key: string) => void): () => void {

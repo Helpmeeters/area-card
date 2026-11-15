@@ -13,12 +13,18 @@ export interface PopupLayout {
   viewportWidth?: number;
   measure?: LineMeasure;
   formatEntityState?: (state: EntityState, sample?: string) => string;
+  /**
+   * Write the known title, icon, and state instead of a Jinja template.
+   * Demo entities are not in Home Assistant, so a template round-trip cannot see them.
+   */
+  literalState?: boolean;
 }
 
 interface RowLayout {
   viewportWidth: number;
   measure?: LineMeasure;
   formatEntityState?: PopupLayout["formatEntityState"];
+  literalState: boolean;
 }
 const LIGHT_ROW = "custom:area-card-light-row";
 const SECTION_TITLE = "custom:area-card-section-title";
@@ -52,6 +58,28 @@ export function buildPopupConfig(
   return config;
 }
 
+const POPUP_SECTION_ORDER = [
+  "status",
+  "climate",
+  "lights",
+  "media",
+  "cameras",
+  "switches",
+  "occupancy",
+  "openings",
+  "satellites",
+  "sensors",
+  "locks",
+  "vacuums",
+  "buttons",
+  "scenes",
+  "scripts",
+  "helpers",
+  "automations",
+] as const;
+
+type PopupSectionId = (typeof POPUP_SECTION_ORDER)[number];
+
 export function buildPopupCards(
   sections: AreaSections,
   states: Record<string, EntityState> = {},
@@ -61,134 +89,156 @@ export function buildPopupCards(
 ): Record<string, unknown>[] {
   const rows = resolveLayout(layout);
   const cards: Record<string, unknown>[] = [];
-  const add = (id: RollupId | "status", body: Record<string, unknown>[]) => {
-    if (body.length === 0) return;
+  for (const id of POPUP_SECTION_ORDER) {
+    const body = sectionBody(id, sections, states, roomName, disabledAutomations, rows);
+    if (body.length === 0) continue;
     cards.push(titleCard(id), ...body);
-  };
+  }
+  return cards;
+}
 
-  const rollups = sectionRollups(sections, states, disabledAutomations);
-  add(
-    "status",
-    rollups.length
-      ? [
-          {
-            type: mushroomCardType("chips-card"),
-            alignment: "start",
-            grid_options: FULL,
-            chips: rollups.map((rollup) => ({
-              type: "template",
-              icon: rollup.icon,
-              icon_color: rollup.iconColor,
-              content: rollupLabel(rollup),
-              tap_action: { action: "none" },
-              hold_action: { action: "none" },
-              double_tap_action: { action: "none" },
-            })),
-          },
-        ]
-      : [],
-  );
+/** Heading and rows for one popup section. Empty when that section has nothing to show. */
+export function sectionPopupCards(
+  id: RollupId,
+  sections: AreaSections,
+  states: Record<string, EntityState> = {},
+  roomName = "",
+  disabledAutomations: ReadonlySet<string> = new Set(),
+  layout?: PopupLayout,
+): Record<string, unknown>[] {
+  const body = sectionBody(id, sections, states, roomName, disabledAutomations, resolveLayout(layout));
+  if (body.length === 0) return [];
+  return [titleCard(id), ...body];
+}
 
-  add(
-    "climate",
-    sections.climate.map((entity) => entityCard(entity, states, roomName, rows)),
-  );
-
-  add(
-    "lights",
-    sections.lights.map((entity) =>
-      withLedDot(lightCard(entity, states[entity], states, roomName, rows, Boolean(sections.lightLeds[entity])), sections.lightLeds[entity]),
-    ),
-  );
-
-  add(
-    "media",
-    sections.mediaPlayers.map((entity) =>
-      named(
+function sectionBody(
+  id: PopupSectionId,
+  sections: AreaSections,
+  states: Record<string, EntityState>,
+  roomName: string,
+  disabledAutomations: ReadonlySet<string>,
+  rows: RowLayout,
+): Record<string, unknown>[] {
+  switch (id) {
+    case "status": {
+      const rollups = sectionRollups(sections, states, disabledAutomations);
+      if (rollups.length === 0) return [];
+      return [
         {
-          type: "media-control",
-          entity,
+          type: mushroomCardType("chips-card"),
+          alignment: "start",
           grid_options: FULL,
+          chips: rollups.map((rollup) => ({
+            type: "template",
+            icon: rollup.icon,
+            icon_color: rollup.iconColor,
+            content: rollupLabel(rollup),
+            tap_action: { action: "none" },
+            hold_action: { action: "none" },
+            double_tap_action: { action: "none" },
+          })),
         },
-        entity,
-        states,
-        roomName,
-      ),
-    ),
-  );
-
-  add(
-    "cameras",
-    sections.cameras.map((entity) => cameraCard(entity, states, roomName)),
-  );
-
-  add(
-    "switches",
-    sections.switches.map((entity) =>
-      entityCard(entity, states, roomName, rows, {
-        tap_action: { action: "toggle" },
-        hold_action: { action: "more-info" },
-      }),
-    ),
-  );
-
-  add(
-    "occupancy",
-    sections.occupancy.map((item) => occupancyCard(item.entityId, states, roomName, rows, item.pressureEntityId)),
-  );
-
-  add(
-    "openings",
-    sections.openings.map((entity) =>
-      entity.startsWith("cover.")
-        ? named(
-            {
-              type: mushroomCardType("cover-card"),
+      ];
+    }
+    case "climate":
+      return sections.climate.map((entity) => climateCard(entity, states, roomName, rows));
+    case "lights":
+      return sections.lights.map((entity) =>
+        withLedDot(
+          lightCard(entity, states[entity], states, roomName, rows, Boolean(sections.lightLeds[entity])),
+          sections.lightLeds[entity],
+        ),
+      );
+    case "media":
+      return sections.mediaPlayers.map((entity) =>
+        named(
+          {
+            type: "media-control",
+            entity,
+            grid_options: FULL,
+          },
+          entity,
+          states,
+          roomName,
+        ),
+      );
+    case "cameras":
+      return sections.cameras.map((entity) => cameraCard(entity, states, roomName));
+    case "switches":
+      return sections.switches.map((entity) =>
+        entityCard(entity, states, roomName, rows, {
+          tap_action: { action: "toggle" },
+          hold_action: { action: "more-info" },
+        }),
+      );
+    case "occupancy":
+      return sections.occupancy.map((item) =>
+        occupancyCard(item.entityId, states, roomName, rows, item.pressureEntityId),
+      );
+    case "openings":
+      return sections.openings.map((entity) =>
+        entity.startsWith("cover.")
+          ? named(
+              {
+                type: mushroomCardType("cover-card"),
+                entity,
+                show_position_control: true,
+                show_buttons_control: true,
+                grid_options: gridFor(rows, entityTitle(entity, states, roomName), entitySecondaries(states[entity], rows)),
+              },
               entity,
-              show_position_control: true,
-              show_buttons_control: true,
-              grid_options: gridFor(rows, entityTitle(entity, states, roomName), entitySecondaries(states[entity], rows)),
+              states,
+              roomName,
+            )
+          : entityCard(entity, states, roomName, rows),
+      );
+    case "satellites":
+      return sections.satellites.map((item) =>
+        satelliteCard(item.entityId, states, roomName, rows, item.ledEntityId, item.alarmEntityId),
+      );
+    case "sensors":
+      return sections.sensors.map((entity) => entityCard(entity, states, roomName, rows));
+    case "locks":
+      return sections.locks.map((entity) => lockCard(entity, states, roomName));
+    case "vacuums":
+      return sections.vacuums.map((entity) => vacuumCard(entity, states, roomName));
+    case "buttons":
+      return sections.buttons.map((entity) =>
+        commandCard(entity, states, roomName, rows, buttonPressService(entity), "mdi:gesture-tap-button", "pink"),
+      );
+    case "scenes":
+      return sections.scenes.map((entity) =>
+        commandCard(entity, states, roomName, rows, "scene.turn_on", "mdi:palette", "deep-purple"),
+      );
+    case "scripts":
+      return sections.scripts.map((entity) =>
+        commandCard(entity, states, roomName, rows, "script.turn_on", "mdi:script-text", "brown"),
+      );
+    case "helpers":
+      return [
+        ...sections.selects.map((entity) =>
+          named(
+            {
+              type: mushroomCardType("select-card"),
+              entity,
+              grid_options: gridFor(rows, entityTitle(entity, states, roomName), selectSecondaries(states[entity], rows)),
             },
             entity,
             states,
             roomName,
-          )
-        : entityCard(entity, states, roomName, rows),
-    ),
-  );
-
-  add(
-    "satellites",
-    sections.satellites.map((item) =>
-      satelliteCard(item.entityId, states, roomName, rows, item.ledEntityId, item.alarmEntityId),
-    ),
-  );
-
-  const helperCards = [
-    ...sections.selects.map((entity) =>
-      named(
-        {
-          type: mushroomCardType("select-card"),
-          entity,
-          grid_options: gridFor(rows, entityTitle(entity, states, roomName), selectSecondaries(states[entity], rows)),
-        },
-        entity,
-        states,
-        roomName,
-      ),
-    ),
-    ...sections.helpers.map((entity) => entityCard(entity, states, roomName, rows)),
-  ];
-  add("helpers", helperCards);
-
-  add(
-    "automations",
-    sections.automations.map((entity) =>
-      automationCard(entity, states, roomName, rows, disabledAutomations.has(entity)),
-    ),
-  );
-
-  return cards;
+          ),
+        ),
+        ...sections.helpers.map((entity) => entityCard(entity, states, roomName, rows)),
+      ];
+    case "automations":
+      return sections.automations.map((entity) =>
+        automationCard(entity, states, roomName, rows, disabledAutomations.has(entity)),
+      );
+    default: {
+      const exhaustive: never = id;
+      return exhaustive;
+    }
+  }
 }
 
 const LIGHT_CONTROL_MODES = new Set([
@@ -238,14 +288,19 @@ function lightCard(
   // The light card binds one action to the whole row. The template card splits
   // icon tap from the rest of the row and still renders a Mushroom row.
   // Its secondary is the raw state title, so "Unavailable" is the longest line.
+  const literal = layout.literalState;
   return {
     type: mushroomCardType("template-card"),
     entity,
     entity_id: entity,
     primary: title,
-    secondary: `{{ states('${entity}') | title }}`,
-    icon: `{{ state_attr('${entity}', 'icon') or 'mdi:lightbulb' }}`,
-    icon_color: `{{ 'amber' if is_state('${entity}', 'on') else 'grey' }}`,
+    secondary: literal ? shownState(state) : `{{ states('${entity}') | title }}`,
+    icon: literal ? shownIcon(state, "mdi:lightbulb") : `{{ state_attr('${entity}', 'icon') or 'mdi:lightbulb' }}`,
+    icon_color: literal
+      ? state?.state === "on"
+        ? "amber"
+        : "grey"
+      : `{{ 'amber' if is_state('${entity}', 'on') else 'grey' }}`,
     tap_action: { action: "more-info" },
     hold_action: { action: "more-info" },
     double_tap_action: { action: "none" },
@@ -329,6 +384,124 @@ function entityCard(
   );
 }
 
+function climateCard(
+  entity: string,
+  states: Record<string, EntityState>,
+  roomName: string,
+  layout: RowLayout,
+): Record<string, unknown> {
+  const domain = entity.split(".")[0];
+  if (domain === "climate") {
+    return named(
+      {
+        type: mushroomCardType("climate-card"),
+        entity,
+        grid_options: FULL,
+      },
+      entity,
+      states,
+      roomName,
+    );
+  }
+  if (domain === "humidifier") {
+    return named(
+      {
+        type: mushroomCardType("humidifier-card"),
+        entity,
+        show_target_humidity_control: true,
+        grid_options: FULL,
+      },
+      entity,
+      states,
+      roomName,
+    );
+  }
+  // Sensors, water heaters, and any other climate-section entity. Mushroom has no water-heater card.
+  return entityCard(entity, states, roomName, layout);
+}
+
+function lockCard(
+  entity: string,
+  states: Record<string, EntityState>,
+  roomName: string,
+): Record<string, unknown> {
+  return named(
+    {
+      type: mushroomCardType("lock-card"),
+      entity,
+      grid_options: FULL,
+    },
+    entity,
+    states,
+    roomName,
+  );
+}
+
+function vacuumCard(
+  entity: string,
+  states: Record<string, EntityState>,
+  roomName: string,
+): Record<string, unknown> {
+  return named(
+    {
+      type: mushroomCardType("vacuum-card"),
+      entity,
+      grid_options: FULL,
+    },
+    entity,
+    states,
+    roomName,
+  );
+}
+
+/** Whole-row tap runs the service. Hold opens more-info. The icon uses the same actions. */
+function commandCard(
+  entity: string,
+  states: Record<string, EntityState>,
+  roomName: string,
+  layout: RowLayout,
+  service: string,
+  fallbackIcon: string,
+  activeColor: string,
+): Record<string, unknown> {
+  const title = entityTitle(entity, states, roomName);
+  const state = states[entity];
+  const literal = layout.literalState;
+  return {
+    type: mushroomCardType("template-card"),
+    entity,
+    entity_id: entity,
+    primary: title,
+    secondary: literal ? shownState(state) : `{{ states('${entity}') | title }}`,
+    icon: literal ? shownIcon(state, fallbackIcon) : `{{ state_attr('${entity}', 'icon') or '${fallbackIcon}' }}`,
+    icon_color: literal
+      ? state?.state === "on"
+        ? activeColor
+        : "grey"
+      : `{{ '${activeColor}' if is_state('${entity}', 'on') else 'grey' }}`,
+    tap_action: performAction(service, entity),
+    hold_action: { action: "more-info" },
+    double_tap_action: { action: "none" },
+    icon_tap_action: performAction(service, entity),
+    icon_hold_action: { action: "more-info" },
+    icon_double_tap_action: { action: "none" },
+    grid_options: gridFor(layout, title, entitySecondaries(states[entity], layout)),
+  };
+}
+
+function buttonPressService(entity: string): string {
+  const domain = entity.split(".")[0];
+  return `${domain || "button"}.press`;
+}
+
+function performAction(service: string, entity: string): Record<string, unknown> {
+  return {
+    action: "perform-action",
+    perform_action: service,
+    target: { entity_id: entity },
+  };
+}
+
 function occupancyCard(
   entity: string,
   states: Record<string, EntityState>,
@@ -337,6 +510,8 @@ function occupancyCard(
   pressureId?: string,
 ): Record<string, unknown> {
   const title = entityTitle(entity, states, roomName);
+  const state = states[entity];
+  const literal = layout.literalState;
   const pressure = pressureId
     ? `{% set p = '${pressureId}' %}{% if states(p) not in ['unknown', 'unavailable', 'none', ''] %} · {{ states(p) }}{% set unit = state_attr(p, 'unit_of_measurement') %}{% if unit %} {{ unit }}{% endif %}{% endif %}`
     : "";
@@ -344,9 +519,13 @@ function occupancyCard(
     type: mushroomCardType("template-card"),
     entity,
     primary: title,
-    secondary: `{{ states('${entity}') | title }}${pressure}`,
-    icon: `{{ state_attr('${entity}', 'icon') or 'mdi:motion-sensor' }}`,
-    icon_color: `{{ 'amber' if is_state('${entity}', 'on') else 'grey' }}`,
+    secondary: literal ? occupancyLiteral(state, pressureId ? states[pressureId] : undefined) : `{{ states('${entity}') | title }}${pressure}`,
+    icon: literal ? shownIcon(state, "mdi:motion-sensor") : `{{ state_attr('${entity}', 'icon') or 'mdi:motion-sensor' }}`,
+    icon_color: literal
+      ? state?.state === "on"
+        ? "amber"
+        : "grey"
+      : `{{ 'amber' if is_state('${entity}', 'on') else 'grey' }}`,
     tap_action: { action: "more-info" },
     hold_action: { action: "none" },
     grid_options: gridFor(layout, title, occupancySecondaries(pressureId ? states[pressureId] : undefined)),
@@ -361,6 +540,7 @@ function satelliteCard(
   ledId?: string,
   alarmId?: string,
 ): Record<string, unknown> {
+  const literal = layout.literalState;
   const led = ledId
     ? ` · LED: {{ states('${ledId}') | title }}{% if is_state('${ledId}', 'on') and state_attr('${ledId}', 'brightness') %} ({{ (state_attr('${ledId}', 'brightness') / 2.55) | round }}%){% endif %}`
     : "";
@@ -369,16 +549,23 @@ function satelliteCard(
     type: mushroomCardType("template-card"),
     entity,
     primary: entityTitle(entity, states, roomName),
-    secondary: `{{ states('${entity}') | title }}${led}${alarm}`,
+    secondary: literal
+      ? satelliteLiteral(states[entity], ledId ? states[ledId] : undefined, alarmId ? states[alarmId] : undefined, Boolean(alarmId))
+      : `{{ states('${entity}') | title }}${led}${alarm}`,
     icon: "mdi:tablet-dashboard",
-    icon_color: `{{ 'blue' if is_state('${entity}', 'idle') else 'green' }}`,
+    icon_color: literal
+      ? states[entity]?.state === "idle"
+        ? "blue"
+        : "green"
+      : `{{ 'blue' if is_state('${entity}', 'idle') else 'green' }}`,
     tap_action: { action: "more-info" },
     hold_action: { action: "none" },
     grid_options: gridFor(layout, entityTitle(entity, states, roomName), satelliteSecondaries(Boolean(ledId), Boolean(alarmId))),
   };
   if (ledId) {
-    card.badge_icon = `{{ 'mdi:led-on' if is_state('${ledId}', 'on') else 'mdi:led-off' }}`;
-    card.badge_color = `{{ 'amber' if is_state('${ledId}', 'on') else 'grey' }}`;
+    const ledOn = states[ledId]?.state === "on";
+    card.badge_icon = literal ? (ledOn ? "mdi:led-on" : "mdi:led-off") : `{{ 'mdi:led-on' if is_state('${ledId}', 'on') else 'mdi:led-off' }}`;
+    card.badge_color = literal ? (ledOn ? "amber" : "grey") : `{{ 'amber' if is_state('${ledId}', 'on') else 'grey' }}`;
   }
   return card;
 }
@@ -390,15 +577,24 @@ function automationCard(
   layout: RowLayout,
   disabled = false,
 ): Record<string, unknown> {
+  const literal = layout.literalState;
   return {
     type: mushroomCardType("template-card"),
     entity,
     primary: entityTitle(entity, states, roomName),
     secondary: disabled
       ? "Disabled"
-      : `{% set lt = state_attr('${entity}', 'last_triggered') %}{{ relative_time(lt) + ' ago' if lt else 'Never triggered' }}`,
+      : literal
+        ? automationLiteral(states[entity])
+        : `{% set lt = state_attr('${entity}', 'last_triggered') %}{{ relative_time(lt) + ' ago' if lt else 'Never triggered' }}`,
     icon: disabled ? "mdi:flash-off" : "mdi:flash",
-    icon_color: disabled ? "grey" : `{{ 'green' if is_state('${entity}', 'on') else 'grey' }}`,
+    icon_color: disabled
+      ? "grey"
+      : literal
+        ? states[entity]?.state === "on"
+          ? "green"
+          : "grey"
+        : `{{ 'green' if is_state('${entity}', 'on') else 'grey' }}`,
     tap_action: { action: "more-info" },
     hold_action: {
       action: "perform-action",
@@ -435,7 +631,64 @@ function resolveLayout(layout?: PopupLayout): RowLayout {
     viewportWidth,
     measure: layout?.measure,
     formatEntityState: layout?.formatEntityState,
+    literalState: layout?.literalState === true,
   };
+}
+
+/** Same words Jinja's `| title` produces, so a demo row matches a rendered template. */
+function shownState(state: EntityState | undefined): string {
+  const raw = state?.state;
+  if (typeof raw !== "string" || raw.trim() === "") return UNAVAILABLE;
+  return raw.replace(/[A-Za-z]+(?:'[A-Za-z]+)?/g, (word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase());
+}
+
+function shownIcon(state: EntityState | undefined, fallback: string): string {
+  const icon = state?.attributes?.icon;
+  return typeof icon === "string" && icon.trim() !== "" ? icon : fallback;
+}
+
+function occupancyLiteral(state: EntityState | undefined, pressure: EntityState | undefined): string {
+  let text = shownState(state);
+  if (!pressure) return text;
+  const raw = pressure.state;
+  if (!raw || raw === "unknown" || raw === "unavailable" || raw === "none") return text;
+  text += ` · ${raw}`;
+  const unit = pressure.attributes?.unit_of_measurement;
+  if (typeof unit === "string" && unit !== "") text += ` ${unit}`;
+  return text;
+}
+
+function satelliteLiteral(
+  state: EntityState | undefined,
+  led: EntityState | undefined,
+  alarm: EntityState | undefined,
+  hasAlarm: boolean,
+): string {
+  let text = shownState(state);
+  if (led) {
+    text += ` · LED: ${shownState(led)}`;
+    const brightness = led.attributes?.brightness;
+    if (led.state === "on" && typeof brightness === "number") {
+      text += ` (${Math.round(brightness / 2.55)}%)`;
+    }
+  }
+  if (hasAlarm) text += ` · Alarm: ${alarm?.state === "on" ? "On" : "Off"}`;
+  return text;
+}
+
+function automationLiteral(state: EntityState | undefined): string {
+  const triggered = state?.attributes?.last_triggered;
+  if (typeof triggered !== "string" || triggered.trim() === "") return "Never triggered";
+  const then = Date.parse(triggered);
+  if (Number.isNaN(then)) return "Never triggered";
+  const seconds = Math.max(0, Math.round((Date.now() - then) / 1000));
+  if (seconds < 45) return "seconds ago";
+  const minutes = Math.round(seconds / 60);
+  if (minutes < 45) return minutes === 1 ? "1 minute ago" : `${minutes} minutes ago`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 22) return hours === 1 ? "1 hour ago" : `${hours} hours ago`;
+  const days = Math.round(hours / 24);
+  return days === 1 ? "1 day ago" : `${days} days ago`;
 }
 
 function gridFor(

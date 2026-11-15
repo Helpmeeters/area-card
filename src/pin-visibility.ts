@@ -14,6 +14,9 @@ export function entityPinActive(entityId: string, state: string | undefined): bo
   const domain = entityId.split(".")[0];
   if (domain === "media_player") return state === "playing" || state === "on" || state === "buffering";
   if (domain === "cover") return state === "open" || state === "opening";
+  if (domain === "lock") return state === "unlocked";
+  if (domain === "vacuum") return state === "cleaning" || state === "returning" || state === "on";
+  if (domain === "script") return state === "on";
   return state === "on";
 }
 

@@ -52,6 +52,13 @@ export interface ClassifierHass {
   hassUrl?: (path: string) => string;
   callWS?: (message: { type: string; entity_id?: string }) => Promise<unknown>;
   formatEntityState?: (stateObj: EntityState, state?: string) => string;
+  callService?: (
+    domain: string,
+    service: string,
+    serviceData?: Record<string, unknown>,
+    target?: Record<string, unknown>,
+    ...rest: unknown[]
+  ) => Promise<unknown>;
 }
 
 export interface OccupancyItem {
@@ -78,10 +85,28 @@ export interface AreaSections {
   helpers: string[];
   selects: string[];
   automations: string[];
+  sensors: string[];
+  locks: string[];
+  vacuums: string[];
+  buttons: string[];
+  scenes: string[];
+  scripts: string[];
 }
 
 const OCCUPANCY_CLASSES = new Set(["occupancy", "motion", "presence", "chair", "bed"]);
 const OPENING_CLASSES = new Set(["door", "window", "opening", "garage_door"]);
+const CLIMATE_SENSOR_CLASSES = new Set([
+  "illuminance",
+  "carbon_dioxide",
+  "carbon_monoxide",
+  "pm1",
+  "pm25",
+  "pm10",
+  "aqi",
+  "volatile_organic_compounds",
+  "volatile_organic_compounds_parts",
+  "moisture",
+]);
 
 export function emptySections(): AreaSections {
   return {
@@ -97,6 +122,12 @@ export function emptySections(): AreaSections {
     helpers: [],
     selects: [],
     automations: [],
+    sensors: [],
+    locks: [],
+    vacuums: [],
+    buttons: [],
+    scenes: [],
+    scripts: [],
   };
 }
 
@@ -112,7 +143,7 @@ export function areaDisplay(
   };
 }
 
-const PURE_HELPER_DOMAINS = new Set(["input_boolean", "input_select", "timer"]);
+const PURE_HELPER_DOMAINS = new Set(["input_boolean", "input_button", "input_select", "timer"]);
 
 /**
  * True when the area has device entities and every one of them is unavailable.
@@ -165,14 +196,28 @@ export function classifyArea(hass: ClassifierHass, areaId: string): AreaSections
   });
 
   const pressureByDevice = new Map<string, string>();
+  const atmosphericByDevice = new Map<string, string>();
   for (const entry of entries) {
     if (!entry.device_id) continue;
-    if (!isPressureReading(entry.entity_id, deviceClass(entry, states[entry.entity_id]))) continue;
+    const pressureClass = deviceClass(entry, states[entry.entity_id]);
+    if (
+      pressureClass === "atmospheric_pressure" &&
+      entry.entity_id.startsWith("sensor.") &&
+      !isPressureReading(entry.entity_id, pressureClass)
+    ) {
+      const existing = atmosphericByDevice.get(entry.device_id);
+      if (!existing || entry.entity_id < existing) {
+        atmosphericByDevice.set(entry.device_id, entry.entity_id);
+      }
+    }
+    if (!isPressureReading(entry.entity_id, pressureClass)) continue;
+    if (isDirectClimateSensor(pressureClass)) continue;
     const existing = pressureByDevice.get(entry.device_id);
     if (!existing || entry.entity_id < existing) {
       pressureByDevice.set(entry.device_id, entry.entity_id);
     }
   }
+  const occupancyDevices = occupancyDeviceIds(entries, states, satelliteDevices);
 
   const renderedLights = entries.filter((entry) => isRenderedLight(entry, devices, satelliteDevices, states));
   const lightLeds = assignLightLeds(renderedLights, entries, satelliteDevices);
@@ -187,8 +232,6 @@ export function classifyArea(hass: ClassifierHass, areaId: string): AreaSections
     const device = entry.device_id ? devices[entry.device_id] : undefined;
     const suppressed = isDiagnosticOrConfig(entry);
 
-    if (isPressureReading(id, dc)) continue;
-
     if (isSatelliteRelated(entry, satelliteDevices)) {
       if (domain === "assist_satellite") {
         sections.satellites.push(satelliteItem(entry, entries, states));
@@ -201,8 +244,46 @@ export function classifyArea(hass: ClassifierHass, areaId: string): AreaSections
       continue;
     }
 
-    if (domain === "sensor" && (dc === "temperature" || dc === "humidity")) {
+    if (domain === "sensor" && isDirectClimateSensor(dc)) {
       if (!suppressed) sections.climate.push(id);
+      continue;
+    }
+
+    // A pressure reading on an occupancy device stays the occupancy companion.
+    if (domain === "sensor" && isPressureCandidate(id, dc)) {
+      const companion = Boolean(entry.device_id && occupancyDevices.has(entry.device_id));
+      if (!companion && !suppressed) sections.climate.push(id);
+      continue;
+    }
+
+    if (domain === "climate" || domain === "humidifier" || domain === "water_heater") {
+      if (!suppressed) sections.climate.push(id);
+      continue;
+    }
+
+    if (domain === "lock") {
+      if (!suppressed) sections.locks.push(id);
+      continue;
+    }
+
+    if (domain === "vacuum") {
+      if (!suppressed) sections.vacuums.push(id);
+      continue;
+    }
+
+    if (domain === "button" || domain === "input_button") {
+      if (suppressed) continue;
+      sections.buttons.push(id);
+      continue;
+    }
+
+    if (domain === "scene") {
+      if (!suppressed) sections.scenes.push(id);
+      continue;
+    }
+
+    if (domain === "script") {
+      if (!suppressed) sections.scripts.push(id);
       continue;
     }
 
@@ -259,12 +340,16 @@ export function classifyArea(hass: ClassifierHass, areaId: string): AreaSections
         sections.openings.push(id);
         continue;
       }
-      if ((dc && OCCUPANCY_CLASSES.has(dc)) || mentionsChairOrBed(id, friendlyName(state))) {
+      if (isOccupancyBinary(entry, state, satelliteDevices)) {
         sections.occupancy.push({
           entityId: id,
-          pressureEntityId: entry.device_id ? pressureByDevice.get(entry.device_id) : undefined,
+          pressureEntityId: entry.device_id
+            ? pressureByDevice.get(entry.device_id) ?? atmosphericByDevice.get(entry.device_id)
+            : undefined,
         });
+        continue;
       }
+      sections.sensors.push(id);
     }
   }
 
@@ -280,6 +365,12 @@ export function classifyArea(hass: ClassifierHass, areaId: string): AreaSections
   sections.helpers = sortIds(sections.helpers, states);
   sections.selects = sortIds(sections.selects, states);
   sections.automations = sortIds(sections.automations, states);
+  sections.sensors = sortIds(sections.sensors, states);
+  sections.locks = sortIds(sections.locks, states);
+  sections.vacuums = sortIds(sections.vacuums, states);
+  sections.buttons = sortIds(sections.buttons, states);
+  sections.scenes = sortIds(sections.scenes, states);
+  sections.scripts = sortIds(sections.scripts, states);
   sections.occupancy.sort((a, b) => compareIds(a.entityId, b.entityId, states));
   sections.satellites.sort((a, b) => compareIds(a.entityId, b.entityId, states));
   return sections;
@@ -309,6 +400,12 @@ export function membershipKey(areaId: string, name: string, icon: string, sectio
     sections.helpers.join(","),
     sections.selects.join(","),
     sections.automations.join(","),
+    sections.sensors.join(","),
+    sections.locks.join(","),
+    sections.vacuums.join(","),
+    sections.buttons.join(","),
+    sections.scenes.join(","),
+    sections.scripts.join(","),
   ].join("|");
 }
 
@@ -515,6 +612,50 @@ function isPressureReading(entityId: string, deviceClassName: string | undefined
   if (!entityId.startsWith("sensor.")) return false;
   if (deviceClassName === "pressure") return true;
   return entityId.endsWith("_pressure");
+}
+
+function isPressureCandidate(entityId: string, deviceClassName: string | undefined): boolean {
+  if (!entityId.startsWith("sensor.")) return false;
+  if (deviceClassName === "pressure" || deviceClassName === "atmospheric_pressure") return true;
+  return entityId.endsWith("_pressure");
+}
+
+function isDirectClimateSensor(deviceClassName: string | undefined): boolean {
+  if (!deviceClassName) return false;
+  return (
+    deviceClassName === "temperature" ||
+    deviceClassName === "humidity" ||
+    CLIMATE_SENSOR_CLASSES.has(deviceClassName)
+  );
+}
+
+function occupancyDeviceIds(
+  entries: RegistryEntry[],
+  states: Record<string, EntityState>,
+  satelliteDevices: Set<string>,
+): Set<string> {
+  const ids = new Set<string>();
+  for (const entry of entries) {
+    if (!entry.device_id) continue;
+    if (!isOccupancyBinary(entry, states[entry.entity_id], satelliteDevices)) continue;
+    ids.add(entry.device_id);
+  }
+  return ids;
+}
+
+function isOccupancyBinary(
+  entry: RegistryEntry,
+  state: EntityState | undefined,
+  satelliteDevices: Set<string>,
+): boolean {
+  const id = entry.entity_id;
+  if (!id.startsWith("binary_sensor.")) return false;
+  if (isSatelliteRelated(entry, satelliteDevices)) return false;
+  if (entry.platform === "template") return false;
+  if (isDiagnosticOrConfig(entry)) return false;
+  const dc = deviceClass(entry, state);
+  if (dc && OPENING_CLASSES.has(dc)) return false;
+  return Boolean((dc && OCCUPANCY_CLASSES.has(dc)) || mentionsChairOrBed(id, friendlyName(state)));
 }
 
 function mentionsChairOrBed(entityId: string, name?: string): boolean {

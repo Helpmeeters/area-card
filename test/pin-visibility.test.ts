@@ -155,7 +155,7 @@ describe("visiblePinnedIds", () => {
 
 describe("entityPinActive", () => {
   it("treats missing, blank, unknown, and unavailable as inactive for every domain", () => {
-    for (const entityId of ["light.a", TV, "cover.shade", "switch.lamp"]) {
+    for (const entityId of ["light.a", TV, "cover.shade", "switch.lamp", "lock.front", "vacuum.roomba", "script.bedtime"]) {
       assert.equal(entityPinActive(entityId, undefined), false);
       assert.equal(entityPinActive(entityId, ""), false);
       assert.equal(entityPinActive(entityId, "unknown"), false);
@@ -181,6 +181,25 @@ describe("entityPinActive", () => {
     assert.equal(entityPinActive("switch.lamp", "on"), true);
     assert.equal(entityPinActive("fan.room", "off"), false);
     assert.equal(entityPinActive("binary_sensor.door", "open"), false);
+  });
+
+  it("treats a lock as active only when unlocked", () => {
+    assert.equal(entityPinActive("lock.front", "unlocked"), true);
+    for (const value of ["locked", "jammed", "open", "locking", "unlocking", "on", "off"]) {
+      assert.equal(entityPinActive("lock.front", value), false, value);
+    }
+  });
+
+  it("treats a vacuum as active while cleaning, returning, or on", () => {
+    for (const value of ["cleaning", "returning", "on"]) assert.equal(entityPinActive("vacuum.roomba", value), true, value);
+    for (const value of ["idle", "docked", "paused", "off", "error"]) {
+      assert.equal(entityPinActive("vacuum.roomba", value), false, value);
+    }
+  });
+
+  it("treats a script as active only when on", () => {
+    assert.equal(entityPinActive("script.bedtime", "on"), true);
+    assert.equal(entityPinActive("script.bedtime", "off"), false);
   });
 });
 

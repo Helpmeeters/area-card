@@ -34,7 +34,7 @@ export function pinSwitchStyles(): string {
     "  align-items: center;",
     "  gap: 8px;",
     "}",
-    `.${BUBBLE_CARDS_GRID} > .card:has(> .area-card-pin-switch) > :not(.area-card-pin-switch) {`,
+    `.${BUBBLE_CARDS_GRID} > .card:has(> .area-card-pin-switch) > :not(.area-card-pin-switch):not(.area-card-battery-readout) {`,
     "  flex: 1 1 auto;",
     "  min-width: 0;",
     "}",
@@ -159,10 +159,20 @@ export function insertAreaEditButton(actions: Element, button: HTMLElement): voi
   actions.insertBefore(button, close);
 }
 
-/** Place pencil, then gear, immediately left of close. Moves existing nodes. A missing close button does nothing. */
-export function ensureHeaderButtons(actions: Element, pencil: HTMLElement, gear: HTMLElement): void {
+/**
+ * Place the battery first, then the pencil and gear immediately left of close.
+ * One placement per button. Snapping the battery both to the front and to the
+ * pencil fights Bubble's previous button and retriggers the header observer forever.
+ */
+export function ensureHeaderButtons(
+  actions: Element,
+  battery: HTMLElement,
+  pencil: HTMLElement,
+  gear: HTMLElement,
+): void {
   const close = actions.querySelector(".bubble-close-button");
   if (!close) return;
+  if (actions.firstElementChild !== battery) actions.insertBefore(battery, actions.firstElementChild);
   if (close.previousElementSibling !== gear) actions.insertBefore(gear, close);
   if (gear.previousElementSibling !== pencil) actions.insertBefore(pencil, gear);
 }

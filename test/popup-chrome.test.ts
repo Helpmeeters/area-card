@@ -28,12 +28,17 @@ function fakeHeaderActions(includeClose = true) {
       if (selector === ".bubble-close-button" && includeClose) return close;
       return null;
     },
+    get firstElementChild() {
+      return children[0] ?? null;
+    },
     insertBefore(node: FakeHeaderNode, child: FakeHeaderNode) {
       const existing = children.indexOf(node);
       if (existing !== -1) children.splice(existing, 1);
       const index = children.indexOf(child);
       children.splice(index, 0, node);
-      child.previousElementSibling = node;
+      for (let i = 0; i < children.length; i += 1) {
+        children[i].previousElementSibling = i === 0 ? null : children[i - 1];
+      }
     },
   };
   return { close, children, actions };
@@ -93,58 +98,103 @@ describe("popup chrome", () => {
     assert.deepEqual(children, [button, close]);
   });
 
-  it("places the pencil, then the gear, immediately before close", () => {
+  it("places the battery, the pencil, then the gear, immediately before close", () => {
     const { close, children, actions } = fakeHeaderActions();
+    const battery = fakeNode("area-card-battery");
     const pencil = fakeNode("area-card-pin-edit");
     const gear = fakeNode("area-card-edit-area");
     ensureHeaderButtons(
       actions as unknown as Element,
+      battery as unknown as HTMLElement,
       pencil as unknown as HTMLElement,
       gear as unknown as HTMLElement,
     );
-    assert.deepEqual(children, [pencil, gear, close]);
+    assert.deepEqual(children, [battery, pencil, gear, close]);
+    assert.equal(pencil.previousElementSibling, battery);
     assert.equal(gear.previousElementSibling, pencil);
     assert.equal(close.previousElementSibling, gear);
 
-    children.splice(0, children.length, gear, pencil, close);
+    children.splice(0, children.length, gear, pencil, battery, close);
     gear.previousElementSibling = null;
     pencil.previousElementSibling = gear;
-    close.previousElementSibling = pencil;
+    battery.previousElementSibling = pencil;
+    close.previousElementSibling = battery;
     ensureHeaderButtons(
       actions as unknown as Element,
+      battery as unknown as HTMLElement,
       pencil as unknown as HTMLElement,
       gear as unknown as HTMLElement,
     );
-    assert.deepEqual(children, [pencil, gear, close]);
+    assert.deepEqual(children, [battery, pencil, gear, close]);
+    assert.equal(children.filter((node) => node === battery).length, 1);
     assert.equal(children.filter((node) => node === pencil).length, 1);
     assert.equal(children.filter((node) => node === gear).length, 1);
   });
 
+  it("keeps the battery to the left of Bubble's previous button", () => {
+    const { close, children, actions } = fakeHeaderActions();
+    const previous = fakeNode("bubble-previous-button");
+    children.splice(0, 0, previous);
+    close.previousElementSibling = previous;
+    const battery = fakeNode("area-card-battery");
+    const pencil = fakeNode("area-card-pin-edit");
+    const gear = fakeNode("area-card-edit-area");
+    ensureHeaderButtons(
+      actions as unknown as Element,
+      battery as unknown as HTMLElement,
+      pencil as unknown as HTMLElement,
+      gear as unknown as HTMLElement,
+    );
+    assert.deepEqual(children, [battery, previous, pencil, gear, close]);
+    ensureHeaderButtons(
+      actions as unknown as Element,
+      battery as unknown as HTMLElement,
+      pencil as unknown as HTMLElement,
+      gear as unknown as HTMLElement,
+    );
+    assert.deepEqual(children, [battery, previous, pencil, gear, close]);
+  });
+
   it("leaves the header buttons in place on a second call", () => {
     const { children, actions } = fakeHeaderActions();
+    const battery = fakeNode("area-card-battery");
     const pencil = fakeNode("area-card-pin-edit");
     const gear = fakeNode("area-card-edit-area");
     const host = actions as unknown as Element;
-    ensureHeaderButtons(host, pencil as unknown as HTMLElement, gear as unknown as HTMLElement);
+    ensureHeaderButtons(
+      host,
+      battery as unknown as HTMLElement,
+      pencil as unknown as HTMLElement,
+      gear as unknown as HTMLElement,
+    );
     const placed = [...children];
-    ensureHeaderButtons(host, pencil as unknown as HTMLElement, gear as unknown as HTMLElement);
+    ensureHeaderButtons(
+      host,
+      battery as unknown as HTMLElement,
+      pencil as unknown as HTMLElement,
+      gear as unknown as HTMLElement,
+    );
     assert.deepEqual(children, placed);
+    assert.equal(children.filter((node) => node === battery).length, 1);
     assert.equal(children.filter((node) => node === pencil).length, 1);
     assert.equal(children.filter((node) => node === gear).length, 1);
   });
 
   it("does nothing when the popup has no close button", () => {
     const { children, actions } = fakeHeaderActions(false);
+    const battery = fakeNode("area-card-battery");
     const pencil = fakeNode("area-card-pin-edit");
     const gear = fakeNode("area-card-edit-area");
     assert.doesNotThrow(() =>
       ensureHeaderButtons(
         actions as unknown as Element,
+        battery as unknown as HTMLElement,
         pencil as unknown as HTMLElement,
         gear as unknown as HTMLElement,
       ),
     );
     assert.deepEqual(children, []);
+    assert.equal(battery.previousElementSibling, null);
     assert.equal(pencil.previousElementSibling, null);
     assert.equal(gear.previousElementSibling, null);
   });

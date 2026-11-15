@@ -1,6 +1,18 @@
 import { syncAutomationSubtitle } from "./automation-subtitle";
+import { createBatteryButton, syncBatteryButton, syncBatteryReadouts } from "./battery-ui";
+import type { BatteryMode } from "./battery";
 import { loadDisabledAutomations } from "./automations";
 import { buildButtonConfig, type ButtonConfigInput } from "./button-config";
+import {
+  AREA_CARD_CONFIG_FORM,
+  contentFor,
+  DEMO_AREA_ID,
+  eventTargetsDemoEntity,
+  parseAreaConfig,
+  presentArea,
+  publishChildHass,
+  type ParsedAreaConfig,
+} from "./demo";
 import {
   absoluteStreamUrl,
   autoplayRejected,
@@ -54,17 +66,19 @@ import {
   pinnedPictureSurfaceStyles,
   type CameraPictureLoad,
 } from "./picture";
-import { buildPopupConfig } from "./popup-cards";
 import { areaSettingsPath, ensureHeaderButtons } from "./popup-chrome";
-import { collapsedDotSlots, parseHideSections, ROLLUP_ORDER, sectionRollups, sectionTitle, type RollupId, type SectionRollup, withoutSections } from "./rollups";
-import { areaDisplay, areaUnavailable, classifyArea, membershipKey, type ClassifierHass } from "./sections";
+import { type RollupId, type SectionRollup } from "./rollups";
+import { areaUnavailable, membershipKey, type ClassifierHass } from "./sections";
 import { BUBBLE_ELEMENT } from "./tags";
-import { cachedPins, ensureUserData, saveAreaPins, subscribeUserData } from "./user-data";
-
-interface AreaCardConfig {
-  area: string;
-  hide_sections: RollupId[];
-}
+import {
+  BATTERY_MODE_KEY,
+  cachedBatteryMode,
+  cachedPins,
+  ensureUserData,
+  saveAreaPins,
+  saveBatteryMode,
+  subscribeUserData,
+} from "./user-data";
 
 interface BubbleElement extends HTMLElement {
   hass?: ClassifierHass;
@@ -230,28 +244,16 @@ function pinnedSplitApplied(card: HTMLElement): boolean {
   });
 }
 
-const CONFIG_FORM = {
-  schema: [
-    {
-      name: "area",
-      required: true,
-      selector: { area: {} },
-    },
-    {
-      name: "hide_sections",
-      selector: {
-        select: {
-          multiple: true,
-          options: ROLLUP_ORDER.map((id) => ({ value: id, label: sectionTitle(id) })),
-        },
-      },
-    },
-  ],
-};
-
 class AreaCard extends HTMLElement {
-  private _config?: AreaCardConfig;
+  private _config?: ParsedAreaConfig;
+  /** Last hass Home Assistant assigned. Demo mode rebuilds the child object from this. */
+  private _rawHass?: ClassifierHass;
+  /** Hass this card and its children read. Demo mode includes the mock entities. */
   private _hass?: ClassifierHass;
+  private readonly stopDemoBackend = (event: Event): void => {
+    if (!this._config?.demo || !eventTargetsDemoEntity(event)) return;
+    event.stopPropagation();
+  };
   private buttonEl?: BubbleElement;
   private popupEl?: BubbleElement;
   private signature?: string;
@@ -275,6 +277,9 @@ class AreaCard extends HTMLElement {
   private pinStickyTimer = 0;
   private pinEditEl?: HTMLButtonElement;
   private areaEditEl?: HTMLButtonElement;
+  private batteryEl?: HTMLButtonElement;
+  /** Last filter this card asked to save. Fast clicks queue instead of matching a stale cache. */
+  private batteryWanted: BatteryMode | null = null;
   private pinnedEl?: HTMLElement;
   /** Photo painted on the collapsed card. The popup keeps the area picture. */
   private areaPicture: string | null = null;
@@ -306,16 +311,16 @@ class AreaCard extends HTMLElement {
     this.resizeTimer = window.setTimeout(() => this.schedule(), 150);
   };
 
-  static getConfigForm(): typeof CONFIG_FORM {
-    return CONFIG_FORM;
+  static getConfigForm(): typeof AREA_CARD_CONFIG_FORM {
+    return AREA_CARD_CONFIG_FORM;
   }
 
-  static getStubConfig(hass?: ClassifierHass): AreaCardConfig {
+  static getStubConfig(hass?: ClassifierHass): { area: string; hide_sections: RollupId[] } {
     const first = hass?.areas ? Object.keys(hass.areas)[0] : undefined;
     return { area: first || "area", hide_sections: [] };
   }
 
-  getConfigForm(): typeof CONFIG_FORM {
+  getConfigForm(): typeof AREA_CARD_CONFIG_FORM {
     return AreaCard.getConfigForm();
   }
 
@@ -327,13 +332,17 @@ class AreaCard extends HTMLElement {
     return 2;
   }
 
-  setConfig(config: { area?: unknown; hide_sections?: unknown }): void {
-    if (!config || typeof config.area !== "string" || config.area.trim() === "") {
-      throw new Error("Area is required");
-    }
-    const hide = parseHideSections(config.hide_sections);
-    this._config = { area: config.area, hide_sections: hide };
+  setConfig(config: { area?: unknown; hide_sections?: unknown; demo?: unknown }): void {
+    this._config = parseAreaConfig(config);
+    if (this._rawHass) this.adoptHass(this._rawHass);
     this.schedule();
+  }
+
+  /** Area the card is showing. Demo mode uses the stable demo id, not a registry area. */
+  private boundAreaId(): string {
+    const config = this._config;
+    if (!config) return "";
+    return config.demo ? DEMO_AREA_ID : config.area;
   }
 
   get hass(): ClassifierHass | undefined {
@@ -341,18 +350,38 @@ class AreaCard extends HTMLElement {
   }
 
   set hass(value: ClassifierHass) {
-    this._hass = value;
+    this.adoptHass(value);
     this.schedule();
+  }
+
+  /**
+   * Keeps the raw assignment, then gives this card and any button or popup
+   * already on screen the demo overlay. Render assigns that same object again
+   * once those elements exist.
+   */
+  private adoptHass(value: ClassifierHass): void {
+    this._rawHass = value;
+    const targets: { hass?: ClassifierHass }[] = [];
+    if (this.buttonEl) targets.push(this.buttonEl);
+    if (this.popupEl) targets.push(this.popupEl);
+    this._hass = publishChildHass(Boolean(this._config?.demo), value, targets);
   }
 
   connectedCallback(): void {
     this.style.display = "block";
+    this.addEventListener("hass-more-info", this.stopDemoBackend);
+    this.addEventListener("hass-action", this.stopDemoBackend);
     window.addEventListener("resize", this.onResize);
     this.unsubscribeUserData?.();
     this.unsubscribeUserData = subscribeUserData((key: string) => {
       const hass = this._hass;
-      const areaId = this._config?.area;
-      if (!hass || !areaId || key !== pinnedKey(areaId)) return;
+      const areaId = this.boundAreaId();
+      if (!hass || !areaId) return;
+      if (key === BATTERY_MODE_KEY) {
+        this.paintBatteries(cachedBatteryMode());
+        return;
+      }
+      if (key !== pinnedKey(areaId)) return;
       this.syncPinnedRow(hass, areaId);
       this.applyAreaEdit();
     });
@@ -360,6 +389,8 @@ class AreaCard extends HTMLElement {
   }
 
   disconnectedCallback(): void {
+    this.removeEventListener("hass-more-info", this.stopDemoBackend);
+    this.removeEventListener("hass-action", this.stopDemoBackend);
     this.stopCameraVideo();
     this.unsubscribeUserData?.();
     this.unsubscribeUserData = undefined;
@@ -395,53 +426,55 @@ class AreaCard extends HTMLElement {
   private async render(): Promise<void> {
     if (!this._config || !this._hass) return;
     const hass = this._hass;
-    const areaId = this._config.area;
+    const configArea = this._config.area;
+    const demo = this._config.demo;
+    const same = () =>
+      Boolean(this._config && this._hass === hass && this._config.area === configArea && this._config.demo === demo);
     await ensureUserData(hass);
-    if (!this._config || this._hass !== hass || this._config.area !== areaId) return;
+    if (!same()) return;
     await ensureDeps();
-    if (!this._config || this._hass !== hass || this._config.area !== areaId) return;
-    const { name, icon, picture } = areaDisplay(hass, areaId);
-    const sections = classifyArea(hass, areaId);
-    const disabled = await loadDisabledAutomations(hass, sections.automations);
-    if (!this._config || this._hass !== hass || this._config.area !== areaId) return;
-    this.areaPhoto = picture;
-    this.cameraOrder = sections.cameras;
-    const shownPicture = this.resolveCollapsedPicture(hass, areaId);
-    this.areaPicture = shownPicture;
-    const hide = this._config.hide_sections;
-    const unavailable = areaUnavailable(hass, areaId, disabled);
-    const visibleSections = withoutSections(sections, hide);
-    const signature = membershipKey(areaId, name, icon, sections);
-    const states = hass.states ?? {};
-    this.dotRollups = sectionRollups(visibleSections, states, disabled);
+    if (!same() || !this._config) return;
+    const disabled = demo
+      ? new Set<string>()
+      : await loadDisabledAutomations(hass, contentFor(this._config, hass).sections.automations);
+    if (!same() || !this._config) return;
+    const latest = this._config;
+    const seeded = contentFor(latest, hass);
+    this.areaPhoto = demo ? null : seeded.picture;
+    this.cameraOrder = demo ? [] : seeded.sections.cameras;
+    const shownPicture = demo ? null : this.resolveCollapsedPicture(hass, seeded.areaId);
+    const unavailable = demo ? false : areaUnavailable(hass, seeded.areaId, disabled);
     const formatEntityState = hass.formatEntityState;
-    const formatState = typeof formatEntityState === "function" ? formatEntityState.bind(hass) : undefined;
+    const formatState =
+      !demo && typeof formatEntityState === "function" ? formatEntityState.bind(hass) : undefined;
+    const viewportWidth = window.innerWidth;
+    this.lastViewport = viewportWidth;
+    const view = presentArea(latest, hass, {
+      disabledAutomations: disabled,
+      alignDots: !!this.closest("floor-card"),
+      formatEntityState: formatState,
+      viewportWidth,
+      shownPicture,
+      unavailable,
+    });
+    const areaId = view.content.areaId;
+    const { name, icon, sections } = view.content;
+    const visibleSections = view.sections;
+    const states = view.content.states;
+    const signature = membershipKey(areaId, name, icon, sections);
+    this.dotRollups = view.rollups;
     this.dotTooltipSource = {
       sections: visibleSections,
       states,
       roomName: name,
       formatEntityState: formatState,
-    };
-    const viewportWidth = window.innerWidth;
-    this.lastViewport = viewportWidth;
-    this.buttonInput = {
-      areaId,
-      name,
-      icon,
-      sections: visibleSections,
-      states,
-      dotSlots: collapsedDotSlots(hide),
-      picture: shownPicture,
-      unavailable,
+      hass,
       disabledAutomations: disabled,
-      alignDots: !!this.closest("floor-card"),
-      formatEntityState: formatState,
+      literalState: demo,
     };
-    const buttonConfig = buildButtonConfig(this.buttonInput);
-    const popupConfig = buildPopupConfig(areaId, name, icon, visibleSections, states, picture, disabled, {
-      viewportWidth,
-      formatEntityState: formatState,
-    });
+    this.buttonInput = view.buttonInput;
+    const buttonConfig = view.button;
+    const popupConfig = view.popup;
     const buttonKey = JSON.stringify(buttonConfig);
     const popupKey = JSON.stringify(popupConfig);
     this.popupCards = popupCardsFrom(popupConfig);
@@ -523,7 +556,7 @@ class AreaCard extends HTMLElement {
   private applyDotTooltips(): void {
     const root = this.buttonEl?.shadowRoot;
     if (!root) return;
-    syncAreaDotTooltips(root, this.dotRollups, this.dotTooltipSource);
+    syncAreaDotTooltips(root, this.dotTooltipSource);
     syncAutomationSubtitle(root);
   }
 
@@ -536,6 +569,7 @@ class AreaCard extends HTMLElement {
     this.editTries = 0;
     this.pinEditEl = undefined;
     this.areaEditEl = undefined;
+    this.batteryEl = undefined;
   }
 
   // Bubble rebuilds header actions, so the pencil and gear are reapplied.
@@ -575,13 +609,17 @@ class AreaCard extends HTMLElement {
     if (!root || !areaId) return;
     const actions = root.querySelector(".bubble-header-actions");
     if (actions) {
+      const battery = this.headerButton(actions, ".area-card-battery", this.batteryEl, () => this.batteryButton());
       const pencil = this.headerButton(actions, ".area-card-pin-edit", this.pinEditEl, () => this.pinEditButton());
       const gear = this.headerButton(actions, ".area-card-edit-area", this.areaEditEl, () => this.areaEditButton(areaId));
+      this.batteryEl = battery;
       this.pinEditEl = pencil;
       this.areaEditEl = gear;
-      ensureHeaderButtons(actions, pencil, gear);
+      ensureHeaderButtons(actions, battery, pencil, gear);
       pencil.setAttribute("aria-pressed", this.pinEditing ? "true" : "false");
+      syncBatteryButton(battery, cachedBatteryMode());
     }
+    this.paintBatteries(cachedBatteryMode());
     syncPinToggles(root, {
       editing: this.pinEditing,
       modeOf: (entityId) => pinMode(cachedPins(areaId), entityId),
@@ -625,13 +663,13 @@ class AreaCard extends HTMLElement {
 
   private pinSelected(areaId: string, entityId: string, mode: PinMode): void {
     const hass = this._hass;
-    if (!hass || this._config?.area !== areaId) return;
+    if (!hass || this.boundAreaId() !== areaId) return;
     const current = cachedPins(areaId);
     if (pinMode(current, entityId) === mode) return;
     const next = setPinMode(current, entityId, mode);
     void saveAreaPins(hass, areaId, next).then(
       () => {
-        if (this._hass !== hass || this._config?.area !== areaId) return;
+        if (this._hass !== hass || this.boundAreaId() !== areaId) return;
         this.syncPinnedRow(hass, areaId);
         this.applyAreaEdit();
       },
@@ -742,6 +780,7 @@ class AreaCard extends HTMLElement {
     applyPinnedHostStyle(host);
     this.syncButtonGap(true);
     this.syncPicturePlacement(true);
+    this.paintBatteries(cachedBatteryMode());
   }
 
   private pinnedCard(
@@ -850,7 +889,7 @@ class AreaCard extends HTMLElement {
     if (deadline === undefined) return;
     this.pinStickyTimer = window.setTimeout(() => {
       const hass = this._hass;
-      const areaId = this._config?.area;
+      const areaId = this.boundAreaId();
       if (!this.isConnected || !hass || !areaId) return;
       this.syncPinnedRow(hass, areaId);
     }, Math.max(0, deadline - now));
@@ -891,7 +930,7 @@ class AreaCard extends HTMLElement {
     const finish = (status: "loaded" | "failed") => {
       this.cameraLoads.set(url, status);
       queueMicrotask(() => {
-        if (!this.isConnected || this._config?.area !== areaId) return;
+        if (!this.isConnected || this.boundAreaId() !== areaId) return;
         const hass = this._hass;
         if (!hass) return;
         const shown = this.resolveCollapsedPicture(hass, areaId);
@@ -970,7 +1009,7 @@ class AreaCard extends HTMLElement {
     this.videoPlayer = undefined;
     this.streamState = { entityId, phase: "failed" };
     const hass = this._hass;
-    const areaId = this._config?.area;
+    const areaId = this.boundAreaId();
     if (hass && areaId) this.applyShownPicture(hass, this.resolveCollapsedPicture(hass, areaId));
     this.syncPicturePlacement(this.pinnedRowsVisible);
   }
@@ -987,7 +1026,7 @@ class AreaCard extends HTMLElement {
     generation: number,
   ): Promise<void> {
     const current = () =>
-      generation === this.streamGeneration && this.isConnected && this._config?.area === areaId;
+      generation === this.streamGeneration && this.isConnected && this.boundAreaId() === areaId;
     try {
       if (typeof hass.callWS !== "function") {
         this.failCameraVideo(entityId, generation);
@@ -1305,6 +1344,45 @@ class AreaCard extends HTMLElement {
       requestAnimationFrame(tick);
     };
     requestAnimationFrame(tick);
+  }
+
+  private batteryButton(): HTMLButtonElement {
+    return createBatteryButton((mode) => this.chooseBatteryMode(mode));
+  }
+
+  private chooseBatteryMode(mode: BatteryMode): void {
+    const hass = this._hass;
+    if (!hass) return;
+    const shown = this.batteryWanted ?? cachedBatteryMode();
+    if (shown === mode) {
+      this.paintBatteries(mode);
+      return;
+    }
+    this.batteryWanted = mode;
+    this.paintBatteries(mode);
+    void saveBatteryMode(hass, mode).then(
+      () => {
+        if (this._hass !== hass) return;
+        if (this.batteryWanted === mode) this.batteryWanted = null;
+        this.paintBatteries(cachedBatteryMode());
+      },
+      () => {
+        if (this._hass !== hass) return;
+        if (this.batteryWanted === mode) this.batteryWanted = null;
+        this.paintBatteries(cachedBatteryMode());
+      },
+    );
+  }
+
+  private paintBatteries(mode: BatteryMode): void {
+    const hass = this._hass;
+    if (!hass) return;
+    const root = this.popupEl?.shadowRoot;
+    if (root) {
+      if (this.batteryEl?.isConnected) syncBatteryButton(this.batteryEl, mode);
+      syncBatteryReadouts(root, hass, mode);
+    }
+    if (this.pinnedEl) syncBatteryReadouts(this.pinnedEl, hass, mode, this);
   }
 
   private areaEditButton(areaId: string): HTMLButtonElement {

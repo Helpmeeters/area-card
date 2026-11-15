@@ -11,6 +11,12 @@ export const ROLLUP_ORDER = [
   "satellites",
   "helpers",
   "automations",
+  "sensors",
+  "locks",
+  "vacuums",
+  "buttons",
+  "scenes",
+  "scripts",
 ] as const;
 
 export type RollupId = (typeof ROLLUP_ORDER)[number];
@@ -19,11 +25,11 @@ export function emptyRollupDotClass(id: RollupId): string {
   return `area-dot-${id}-empty`;
 }
 
-/** Collapsed button and floor-header dots. Climate, helpers, and automations are subtitles, not columns. */
+/** Collapsed button and floor-header dots. These sections stay in the popup and off the dot row. */
+const NO_DOT = new Set<RollupId>(["climate", "helpers", "automations", "buttons", "scenes", "scripts"]);
+
 export function collapsedDotSlots(hide: readonly RollupId[]): RollupId[] {
-  return ROLLUP_ORDER.filter(
-    (id) => id !== "climate" && id !== "helpers" && id !== "automations" && !hide.includes(id),
-  );
+  return ROLLUP_ORDER.filter((id) => !NO_DOT.has(id) && !hide.includes(id));
 }
 
 export interface SectionRollup {
@@ -38,11 +44,13 @@ export interface SectionRollup {
   off?: number;
   /** Automations that will never trigger because their devices are unavailable. */
   disabled?: number;
-  word: "On" | "Open";
+  word: "On" | "Open" | "Unlocked" | "Cleaning";
 }
 
 const MEDIA_ACTIVE = new Set(["on", "playing", "paused", "buffering"]);
 const CAMERA_ACTIVE = new Set(["recording", "streaming"]);
+const VACUUM_ACTIVE = new Set(["cleaning", "returning", "on"]);
+const LOCK_IDLE = new Set(["locked", "unavailable", "unknown", ""]);
 const BINARY_DOMAINS = new Set(["input_boolean", "switch", "binary_sensor"]);
 
 const META: Record<RollupId, Omit<SectionRollup, "id" | "active" | "total">> = {
@@ -116,6 +124,48 @@ const META: Record<RollupId, Omit<SectionRollup, "id" | "active" | "total">> = {
     color: "rgb(255, 235, 59)",
     word: "On",
   },
+  sensors: {
+    title: "Other Sensors",
+    icon: "mdi:eye",
+    iconColor: "cyan",
+    color: "rgb(0, 188, 212)",
+    word: "On",
+  },
+  locks: {
+    title: "Locks",
+    icon: "mdi:lock",
+    iconColor: "deep-orange",
+    color: "rgb(255, 87, 34)",
+    word: "Unlocked",
+  },
+  vacuums: {
+    title: "Vacuums",
+    icon: "mdi:robot-vacuum",
+    iconColor: "light-green",
+    color: "rgb(139, 195, 74)",
+    word: "Cleaning",
+  },
+  buttons: {
+    title: "Buttons",
+    icon: "mdi:gesture-tap-button",
+    iconColor: "pink",
+    color: "rgb(233, 30, 99)",
+    word: "On",
+  },
+  scenes: {
+    title: "Scenes",
+    icon: "mdi:palette",
+    iconColor: "deep-purple",
+    color: "rgb(103, 58, 183)",
+    word: "On",
+  },
+  scripts: {
+    title: "Scripts",
+    icon: "mdi:script-text",
+    iconColor: "brown",
+    color: "rgb(121, 85, 72)",
+    word: "On",
+  },
 };
 
 export function sectionRollups(
@@ -161,6 +211,12 @@ export function sectionRollups(
     off: automations.off,
     disabled: automations.disabled,
   });
+  add("sensors", countActive(sections.sensors, states, isOn), sections.sensors.length);
+  add("locks", countActive(sections.locks, states, isLockActive), sections.locks.length);
+  add("vacuums", countActive(sections.vacuums, states, isVacuumActive), sections.vacuums.length);
+  add("buttons", countActive(sections.buttons, states, isOn), sections.buttons.length);
+  add("scenes", countActive(sections.scenes, states, isOn), sections.scenes.length);
+  add("scripts", countActive(sections.scripts, states, isOn), sections.scripts.length);
   return rollups;
 }
 
@@ -216,36 +272,6 @@ export function dotTooltipLabel(className: string, rollups: readonly SectionRoll
   return rollup ? rollupLabel(rollup) : null;
 }
 
-/**
- * Entity ids that feed a rollup, in section order.
- * The same set the summary counts: the denominator, not only the active ones.
- * Helpers and climate keep only on/off entities. Selects and timers stay out.
- */
-export function rollupEntityIds(id: RollupId, sections: AreaSections): string[] {
-  switch (id) {
-    case "climate":
-      return sections.climate.filter(isOnOffEntity);
-    case "lights":
-      return sections.lights.slice();
-    case "media":
-      return sections.mediaPlayers.slice();
-    case "cameras":
-      return sections.cameras.slice();
-    case "switches":
-      return sections.switches.slice();
-    case "occupancy":
-      return sections.occupancy.map((item) => item.entityId);
-    case "openings":
-      return sections.openings.slice();
-    case "satellites":
-      return sections.satellites.map((item) => item.entityId);
-    case "helpers":
-      return sections.helpers.filter(isOnOffEntity);
-    case "automations":
-      return sections.automations.slice();
-  }
-}
-
 function isRollupId(value: string): value is RollupId {
   return (ROLLUP_ORDER as readonly string[]).includes(value);
 }
@@ -275,6 +301,12 @@ export function sectionHasEntities(id: RollupId, sections: AreaSections): boolea
     case "satellites": return sections.satellites.length > 0;
     case "helpers": return sections.helpers.length > 0 || sections.selects.length > 0;
     case "automations": return sections.automations.length > 0;
+    case "sensors": return sections.sensors.length > 0;
+    case "locks": return sections.locks.length > 0;
+    case "vacuums": return sections.vacuums.length > 0;
+    case "buttons": return sections.buttons.length > 0;
+    case "scenes": return sections.scenes.length > 0;
+    case "scripts": return sections.scripts.length > 0;
   }
 }
 
@@ -293,6 +325,16 @@ export function withoutSections(sections: AreaSections, hide: readonly RollupId[
       case "satellites": result.satellites = []; break;
       case "helpers": result.helpers = []; result.selects = []; break;
       case "automations": result.automations = []; break;
+      case "sensors": result.sensors = []; break;
+      case "locks": result.locks = []; break;
+      case "vacuums": result.vacuums = []; break;
+      case "buttons": result.buttons = []; break;
+      case "scenes": result.scenes = []; break;
+      case "scripts": result.scripts = []; break;
+      default: {
+        const exhaustive: never = id;
+        throw new Error(`Unknown section: ${String(exhaustive)}`);
+      }
     }
   }
   return result;
@@ -453,6 +495,14 @@ function isCameraActive(_entityId: string, value: string): boolean {
 function isOpeningActive(entityId: string, value: string): boolean {
   if (entityId.startsWith("cover.")) return value === "open" || value === "opening";
   return value === "on";
+}
+
+function isLockActive(_entityId: string, value: string): boolean {
+  return !LOCK_IDLE.has(value);
+}
+
+function isVacuumActive(_entityId: string, value: string): boolean {
+  return VACUUM_ACTIVE.has(value);
 }
 
 function countAutomations(
