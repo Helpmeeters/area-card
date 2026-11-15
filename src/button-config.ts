@@ -1,7 +1,7 @@
 import { automationStateText } from "./automation-subtitle";
 import { climateSubtitle } from "./climate-subtitle";
 import { pictureBackgroundStyles } from "./picture";
-import { emptyRollupDotClass, FLOOR_CHEVRON_PX, ROLLUP_ORDER, rollupDotClass, rollupDotStyles, sectionIcon, sectionRollups, type RollupId } from "./rollups";
+import { emptyRollupDotClass, FLOOR_CHEVRON_PX, ROLLUP_ORDER, rollupDotClass, rollupDotStyles, sectionIcon, sectionRollups, type RollupId, type SectionRollup } from "./rollups";
 import type { AreaSections, EntityState } from "./sections";
 import { areaHash, BUBBLE_CARD_TYPE } from "./tags";
 
@@ -48,13 +48,6 @@ const STATE_LINE_STYLES = [
   "  overflow: hidden;",
   "  text-overflow: ellipsis;",
   "  white-space: nowrap;",
-  "}",
-  ".bubble-name-container > .bubble-state > ha-icon.area-card-automation-icon {",
-  "  display: inline-block;",
-  "  width: 12px;",
-  "  height: 12px;",
-  "  vertical-align: -2px;",
-  "  --mdc-icon-size: 12px;",
   "}",
   ".bubble-name-container > .bubble-state > s.area-card-automation-disabled {",
   "  text-decoration: line-through;",
@@ -117,13 +110,22 @@ export function buildButtonConfig(input: ButtonConfigInput): Record<string, unkn
     input.name,
     input.formatEntityState,
   );
-  const automation = rollups.find((rollup) => rollup.id === "automations");
-  const automationText = automation ? automationStateText(automation) : "";
-  const subtitle = [climate, automationText].filter((part) => part !== "").join(" · ");
+  const counts = countSubtitle(rollups);
+  const subtitle = [climate, counts].filter((part) => part !== "").join(" · ");
   if (subtitle) config.state_content = `{{ ${JSON.stringify(subtitle)} }}`;
-  // The marquee rewrite replaces .bubble-state and would drop the icon. Ellipsis stays on the line.
-  if (automationText) config.scrolling_effect = false;
+  // The marquee rewrite replaces .bubble-state. Counts stay on one line and ellipsize.
+  if (counts) config.scrolling_effect = false;
   return config;
+}
+
+/** On/off helpers, then automations. A comma separates them when both are present. */
+function countSubtitle(rollups: readonly SectionRollup[]): string {
+  const helpers = rollups.find((rollup) => rollup.id === "helpers");
+  const automations = rollups.find((rollup) => rollup.id === "automations");
+  const parts: string[] = [];
+  if (helpers) parts.push(`${helpers.active}/${helpers.total} helpers`);
+  if (automations) parts.push(automationStateText(automations));
+  return parts.join(", ");
 }
 
 function buttonStyles(

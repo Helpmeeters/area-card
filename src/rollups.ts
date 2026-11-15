@@ -19,9 +19,11 @@ export function emptyRollupDotClass(id: RollupId): string {
   return `area-dot-${id}-empty`;
 }
 
-/** Collapsed button and floor-header dots. Climate and automations are subtitles, not columns. */
+/** Collapsed button and floor-header dots. Climate, helpers, and automations are subtitles, not columns. */
 export function collapsedDotSlots(hide: readonly RollupId[]): RollupId[] {
-  return ROLLUP_ORDER.filter((id) => id !== "climate" && id !== "automations" && !hide.includes(id));
+  return ROLLUP_ORDER.filter(
+    (id) => id !== "climate" && id !== "helpers" && id !== "automations" && !hide.includes(id),
+  );
 }
 
 export interface SectionRollup {
