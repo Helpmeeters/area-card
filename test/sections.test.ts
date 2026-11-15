@@ -2470,6 +2470,8 @@ describe("climate subtitle", () => {
     assert.equal(struck.kids[1]?.className, "area-card-automation-disabled");
     assert.equal(struck.kids[3]?.className, "area-card-subtitle-icon");
     assert.equal(struck.kids[3]?.styleMap["--mdc-icon-size"], "12px");
+    assert.equal(struck.kids[3]?.styleMap["line-height"], "0");
+    assert.equal(struck.kids[3]?.styleMap["vertical-align"], "1px");
     assert.equal(placeAutomationSubtitle(struck as unknown as HTMLElement), false);
     assert.equal(struck.replacements, 1);
 

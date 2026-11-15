@@ -133,7 +133,9 @@ export function placeAutomationSubtitle(state: HTMLElement): boolean {
     icon.style.setProperty("display", "inline-block");
     icon.style.setProperty("width", "12px");
     icon.style.setProperty("height", "12px");
-    icon.style.setProperty("vertical-align", "-2px");
+    // The subtitle line-height otherwise drops the glyph below the icon box.
+    icon.style.setProperty("line-height", "0");
+    icon.style.setProperty("vertical-align", "1px");
     icon.style.setProperty("--mdc-icon-size", "12px");
     return icon;
   });
