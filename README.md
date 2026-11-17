@@ -22,7 +22,6 @@ Each card requires only the selection of an Area or Floor (or nothing at all for
 - **Pinning & Live Camera Backgrounds** — Pin favorite entities under the area button (**Always** or **While on** with a 2-minute grace window), or use a camera's live stream as the card background, synced per Home Assistant user across browsers.
 - **Battery Overlay** — Toggleable per-area battery percentage badges (**Off**, **Green**, **Yellow**, **Red**) synced per user across browsers.
 - **Floor & Floors Cards** — Collapsible **Floor Card** that aligns all areas on a floor and hides unused dot columns floor-wide, plus **Floors Card** to render every floor in registry order.
-- **Built-in Demo Mode** — Preview every section, dot, battery level, and popup control using a built-in Demo Room without touching your live Home Assistant entities.
 
 ## Views
 
@@ -74,42 +73,21 @@ Each card requires only the selection of an Area or Floor (or nothing at all for
 
 ### Area Card (`custom:area-card`)
 
-Add **Area Card** from the Home Assistant dashboard card picker. The visual editor has one required field (**Area**), an optional multi-select (**Hide sections**), and an optional toggle (**Demo**).
+Add **Area Card** from the Home Assistant dashboard card picker and select an **Area**.
 
 ```yaml
 type: custom:area-card
 area: office_of_drew
-```
-
-Hide specific sections from both the collapsed card and the popup:
-
-```yaml
-type: custom:area-card
-area: office_of_drew
-hide_sections:
-  - media
-  - satellites
-```
-
-Preview the card using the built-in Demo Room (`area` can be omitted):
-
-```yaml
-type: custom:area-card
-demo: true
 ```
 
 | Option | Type | Required | Description |
 | --- | --- | --- | --- |
 | `type` | `string` | **Yes** | `custom:area-card` |
-| `area` | `string` | **Yes*** | Area ID from Home Assistant (*optional when `demo: true`). |
-| `hide_sections` | `list` | No | Section IDs to hide from both the collapsed card and the popup. |
-| `demo` | `boolean` | No | Fill the card from the built-in Demo Room instead of live Home Assistant entities. |
-
-Valid `hide_sections` IDs: `climate`, `lights`, `media`, `cameras`, `switches`, `occupancy`, `openings`, `satellites`, `sensors`, `locks`, `vacuums`, `buttons`, `scenes`, `scripts`, `helpers`, `automations`.
+| `area` | `string` | **Yes** | Area ID from Home Assistant. |
 
 ### Floor Card (`custom:floor-card`)
 
-Displays a collapsible floor header with aggregated status dots and one **Area Card** per area on that floor, sorted alphabetically and aligned by dot column. The visual editor has one required field (**Floor**).
+Displays a collapsible floor header with aggregated status dots and one **Area Card** per area on that floor, sorted alphabetically and aligned by dot column. Add **Floor Card** from the card picker and select a **Floor**.
 
 ```yaml
 type: custom:floor-card
@@ -132,6 +110,36 @@ type: custom:floors-card
 | Option | Type | Required | Description |
 | --- | --- | --- | --- |
 | `type` | `string` | **Yes** | `custom:floors-card` |
+
+## Advanced Configuration
+
+### Hiding Sections (`area-card`)
+
+Hide specific sections from both the collapsed card and the popup using **Hide sections** in the visual editor or `hide_sections` in YAML:
+
+```yaml
+type: custom:area-card
+area: office_of_drew
+hide_sections:
+  - media
+  - satellites
+```
+
+Valid `hide_sections` IDs: `climate`, `lights`, `media`, `cameras`, `switches`, `occupancy`, `openings`, `satellites`, `sensors`, `locks`, `vacuums`, `buttons`, `scenes`, `scripts`, `helpers`, `automations`.
+
+### Demo Mode (`area-card`)
+
+Enable **Demo** in the visual editor or set `demo: true` in YAML to preview the card using the built-in Demo Room without reading live Home Assistant entities (`area` can be omitted):
+
+```yaml
+type: custom:area-card
+demo: true
+```
+
+| Option | Type | Required | Description |
+| --- | --- | --- | --- |
+| `hide_sections` | `list` | No | Section IDs to hide from both the collapsed card and the popup. |
+| `demo` | `boolean` | No | Fill the card from the built-in Demo Room instead of live Home Assistant entities. |
 
 ## Bundled Dependencies
 
