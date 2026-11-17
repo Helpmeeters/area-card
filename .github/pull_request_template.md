@@ -5,4 +5,4 @@
 ## Checklist
 
 - [ ] Tests added or updated, and `npm test` passes
-- [ ] README updated, if user-facing behavior changed
+- [ ] README or Technical Reference updated, if user-facing behavior changed

@@ -354,33 +354,39 @@ function isHalfWidthPinnedCard(config: Record<string, unknown>): boolean {
 
 /**
  * Pack pinned cards for the collapsed stack, in popup order.
- * Two consecutive half-width cards share a row. A full-width card always takes
- * its own row and breaks a pair. A half left without a partner expands.
- * Card objects are returned as-is so the popup keeps `grid_options.columns === 6`.
+ * Each half-width card pairs with the next unpaired half-width card on one row,
+ * even across full-width cards, so two half-width cards do not flank a full-width
+ * card alone. A full-width card takes its own row. A half left without a partner
+ * expands. Card objects are returned as-is so the popup keeps `grid_options.columns === 6`.
  */
 export function layoutPinnedCards(cards: readonly Record<string, unknown>[]): PinnedLayoutRow[] {
   const rows: PinnedLayoutRow[] = [];
-  let index = 0;
-  while (index < cards.length) {
+  const consumed = new Array<boolean>(cards.length).fill(false);
+  for (let index = 0; index < cards.length; index += 1) {
+    if (consumed[index]) continue;
     const config = cards[index];
     if (!isHalfWidthPinnedCard(config)) {
       rows.push({ cards: [{ config, width: "full" }] });
-      index += 1;
       continue;
     }
-    const next = cards[index + 1];
-    if (next && isHalfWidthPinnedCard(next)) {
+    let partnerIndex = -1;
+    for (let lookahead = index + 1; lookahead < cards.length; lookahead += 1) {
+      if (!consumed[lookahead] && isHalfWidthPinnedCard(cards[lookahead])) {
+        partnerIndex = lookahead;
+        break;
+      }
+    }
+    if (partnerIndex !== -1) {
+      consumed[partnerIndex] = true;
       rows.push({
         cards: [
           { config, width: "half" },
-          { config: next, width: "half" },
+          { config: cards[partnerIndex], width: "half" },
         ],
       });
-      index += 2;
-      continue;
+    } else {
+      rows.push({ cards: [{ config, width: "expanded-full" }] });
     }
-    rows.push({ cards: [{ config, width: "expanded-full" }] });
-    index += 1;
   }
   return rows;
 }

@@ -396,7 +396,22 @@ describe("layoutPinnedCards", () => {
     assert.equal(climate.grid_options, undefined);
   });
 
-  it("preserves popup order when halves and full rows mix", () => {
+  it("pairs two half-width cards across a full-width card", () => {
+    const first = pinnedCard("light.reading_lamp", 6);
+    const middle = pinnedCard("assist_satellite.updoot2", 12);
+    const second = pinnedCard("input_boolean.sleep_mode", 6);
+    const rows = layoutPinnedCards([first, middle, second]);
+    assert.deepEqual(layoutWidths(rows), [["half", "half"], ["full"]]);
+    assert.deepEqual(layoutEntities(rows), [
+      ["light.reading_lamp", "input_boolean.sleep_mode"],
+      ["assist_satellite.updoot2"],
+    ]);
+    assert.equal(rows[0].cards[0].config, first);
+    assert.equal(rows[0].cards[1].config, second);
+    assert.equal(rows[1].cards[0].config, middle);
+  });
+
+  it("pairs halves in popup order when halves and full rows mix", () => {
     const cards = [
       pinnedCard("light.a", 6),
       pinnedCard("media_player.tv", 12),
@@ -405,16 +420,16 @@ describe("layoutPinnedCards", () => {
       pinnedCard("cover.shade", 12),
     ];
     const rows = layoutPinnedCards(cards);
-    assert.deepEqual(layoutWidths(rows), [["expanded-full"], ["full"], ["half", "half"], ["full"]]);
+    assert.deepEqual(layoutWidths(rows), [["half", "half"], ["full"], ["expanded-full"], ["full"]]);
     assert.deepEqual(layoutEntities(rows), [
-      ["light.a"],
+      ["light.a", "light.b"],
       ["media_player.tv"],
-      ["light.b", "switch.lamp"],
+      ["switch.lamp"],
       ["cover.shade"],
     ]);
     assert.deepEqual(
       rows.flatMap((row) => row.cards.map((card) => card.config)),
-      cards,
+      [cards[0], cards[2], cards[1], cards[3], cards[4]],
     );
   });
 

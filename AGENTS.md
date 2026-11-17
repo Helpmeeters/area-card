@@ -1,6 +1,6 @@
 # Agent notes
 
-HACS Lovelace plugin (not a Python custom component). Product behavior is in `README.md`. This file is the operational path so you do not rediscover it.
+HACS Lovelace plugin (not a Python custom component). Product behavior is in `README.md` and `docs/technical-reference.md`. This file is the operational path so you do not rediscover it.
 
 Serving Wonderwood Local is not a release. The choice is in "Local or release", immediately before "Ship a card change".
 
@@ -183,4 +183,4 @@ This repo has one `main` and agents ship straight to it. If `git status` shows a
 
 - Bubble Card v3.4.3 and Mushroom v5.2.3 are vendored and prefixed (`area-card-bubble`, `area-card-mushroom-*`). Use those elements. A stock `mushroom-*` or `bubble-card` tag is the wrong card.
 - The area-card editor has two fields: required `area` and optional `hide_sections` (multi-select). The floor-card editor has one required field: `floor`.
-- Popup section order, dot slots, Entries, Satellites, LED dots, and room-name stripping are specified in `README.md`. Read it before changing `src/sections.ts`, `src/rollups.ts`, or `src/popup-cards.ts`.
+- Popup section order, dot slots, Entries, Satellites, LED dots, and room-name stripping are specified in `docs/technical-reference.md`. Read it before changing `src/sections.ts`, `src/rollups.ts`, or `src/popup-cards.ts`.

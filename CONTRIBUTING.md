@@ -28,7 +28,7 @@ npm run build
 
 - Keep changes focused. One fix or feature per pull request.
 - Add or update tests for any behavior change, and make sure `npm test` passes.
-- Popup section order, dot slots, and room-name stripping are specified in the [README](README.md). Read it before changing how sections, rollups, or popup cards behave.
-- Update the README when user-facing behavior changes.
+- Popup section order, dot slots, and room-name stripping are specified in the [Technical Reference](docs/technical-reference.md). Read it before changing how sections, rollups, or popup cards behave.
+- Update the [README](README.md) or [Technical Reference](docs/technical-reference.md) when user-facing behavior or section rules change.
 
 By contributing, you agree that your contributions are licensed under the [MIT License](LICENSE).
