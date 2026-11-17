@@ -6,6 +6,10 @@
 
 A [Home Assistant Marketplace](https://www.home-assistant.io/integrations/marketplace/) / [HACS](https://hacs.xyz/) Lovelace plugin for Home Assistant areas and floors — **Area Card** shows an Area, **Floor Card** shows all Areas in a Floor, and **Floors Card** shows all Areas, organized by Floor.
 
+<p align="center">
+  <img src="https://raw.githubusercontent.com/Helpmeeters/area-card/main/docs/images/floor-card.png" alt="Floor Card showing Areas, status dots, and pinned entities" width="460" />
+</p>
+
 ## Zero-Config Philosophy
 
 Each card requires only the selection of an Area or Floor (or nothing at all for **Floors Card**). Area Card depends heavily on Area hygiene, so your dashboard stays as well-organized as your Home Assistant. All customization happens directly in your dashboard.
@@ -19,6 +23,21 @@ Each card requires only the selection of an Area or Floor (or nothing at all for
 - **Battery Overlay** — Toggleable per-area battery percentage badges (**Off**, **Green**, **Yellow**, **Red**) synced per user across browsers.
 - **Floor & Floors Cards** — Collapsible **Floor Card** that aligns all areas on a floor and hides unused dot columns floor-wide, plus **Floors Card** to render every floor in registry order.
 - **Built-in Demo Mode** — Preview every section, dot, battery level, and popup control using a built-in Demo Room without touching your live Home Assistant entities.
+
+## Views
+
+<table>
+  <tr>
+    <td align="center" width="50%">
+      <strong>Area Card</strong><br />
+      <img src="https://raw.githubusercontent.com/Helpmeeters/area-card/main/docs/images/area-card.png" alt="Area Card with status dots and pinned lights" />
+    </td>
+    <td align="center" width="50%">
+      <strong>Area Popup</strong><br />
+      <img src="https://raw.githubusercontent.com/Helpmeeters/area-card/main/docs/images/area-popup.png" alt="Area Popup showing status chips, entities, and header controls" />
+    </td>
+  </tr>
+</table>
 
 ## Installation
 
