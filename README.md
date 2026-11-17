@@ -27,11 +27,13 @@ Each card requires only the selection of an Area or Floor (or nothing at all for
 
 <table>
   <tr>
-    <td align="center" width="50%">
-      <strong>Area Card</strong><br />
-      <img src="https://raw.githubusercontent.com/Helpmeeters/area-card/main/docs/images/area-card.png" alt="Area Card with status dots and pinned lights" />
+    <td align="center" width="50%" valign="top">
+      <strong>Area Card - Basic</strong><br />
+      <img src="https://raw.githubusercontent.com/Helpmeeters/area-card/main/docs/images/area-card-basic.png" alt="Area Card — Basic" /><br /><br />
+      <strong>Area Card - With Pins</strong><br />
+      <img src="https://raw.githubusercontent.com/Helpmeeters/area-card/main/docs/images/area-card.png" alt="Area Card — With Pins" />
     </td>
-    <td align="center" width="50%">
+    <td align="center" width="50%" valign="top">
       <strong>Area Popup</strong><br />
       <img src="https://raw.githubusercontent.com/Helpmeeters/area-card/main/docs/images/area-popup.png" alt="Area Popup showing status chips, entities, and header controls" />
     </td>
