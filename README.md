@@ -7,6 +7,7 @@
 A [Home Assistant Marketplace](https://www.home-assistant.io/integrations/marketplace/) / [HACS](https://hacs.xyz/) Lovelace plugin for Home Assistant areas and floors — **Area Card** shows an Area, **Floor Card** shows all Areas in a Floor, and **Floors Card** shows all Areas, organized by Floor.
 
 <p align="center">
+  <strong>Floor Card</strong><br />
   <img src="https://raw.githubusercontent.com/Helpmeeters/area-card/main/docs/images/floor-card.png" alt="Floor Card showing Areas, status dots, and pinned entities" width="460" />
 </p>
 
