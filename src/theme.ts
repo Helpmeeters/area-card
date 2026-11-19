@@ -108,16 +108,16 @@ function detectDarkMode(hass: { themes?: { darkMode?: boolean } } | undefined): 
 }
 
 /**
- * Applies Liquid Glass Tinted CSS variables on `host` when the inherited HA
- * theme's card background is opaque, and removes them when a translucent theme
- * is active.
+ * Applies Liquid Glass Tinted CSS variables on `host` when `needed` is true and
+ * the inherited HA theme's card background is opaque, and removes them when
+ * `needed` is false or a translucent theme is active.
  */
 export function syncCardThemeFallback(
   host: HTMLElement,
   hass: { themes?: { darkMode?: boolean } } | undefined,
+  needed = true,
 ): void {
-  const inherited = resolveInheritedCardBackground(host);
-  if (!isOpaqueThemeColor(inherited)) {
+  if (!needed || !isOpaqueThemeColor(resolveInheritedCardBackground(host))) {
     if (host.dataset.areaCardThemeFallback === "1") {
       for (const key of ALL_THEME_KEYS) host.style.removeProperty(key);
       delete host.dataset.areaCardThemeFallback;

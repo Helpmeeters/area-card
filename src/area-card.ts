@@ -33,6 +33,7 @@ import { syncCardThemeFallback } from "./theme";
 import "./floor-card";
 import "./floors-card";
 import "./camera-row";
+import "./device-row";
 import "./light-row";
 import "./section-title";
 import { entityScopeMap, setScopeEntityOrder } from "./entity-order";
@@ -164,15 +165,21 @@ function pinnedInnerHosts(card: HTMLElement): HTMLElement[] {
     for (const child of root.children) {
       if (!(child instanceof HTMLElement) || !child.localName.includes("-")) continue;
       hosts.push(child);
-      if (child.localName === "area-card-light-row") {
-        for (const nested of child.children) {
-          if (nested instanceof HTMLElement && nested.localName.startsWith("area-card-mushroom")) hosts.push(nested);
-        }
-      } else if (child.localName === "area-card-camera-row") {
-        for (const nested of child.children) {
-          if (nested instanceof HTMLElement && nested.localName === "hui-card") {
-            for (const inner of nested.children) {
-              if (inner instanceof HTMLElement && inner.localName.includes("-")) hosts.push(inner);
+      if (
+        child.localName === "area-card-light-row" ||
+        child.localName === "area-card-device-row" ||
+        child.localName === "area-card-camera-row"
+      ) {
+        const queue: HTMLElement[] = [child];
+        while (queue.length > 0) {
+          const parent = queue.shift()!;
+          for (const nested of parent.children) {
+            if (!(nested instanceof HTMLElement)) continue;
+            if (nested.localName === "area-card-device-row" || nested.localName === "area-card-camera-row" || nested.localName === "hui-card") {
+              if (nested.localName !== "hui-card") hosts.push(nested);
+              queue.push(nested);
+            } else if (nested.localName.includes("-")) {
+              hosts.push(nested);
             }
           }
         }
@@ -184,7 +191,10 @@ function pinnedInnerHosts(card: HTMLElement): HTMLElement[] {
 
 function pinnedChromeReady(card: HTMLElement): boolean {
   const hosts = pinnedInnerHosts(card).filter(
-    (host) => host.localName !== "area-card-light-row" && host.localName !== "area-card-camera-row",
+    (host) =>
+      host.localName !== "area-card-light-row" &&
+      host.localName !== "area-card-device-row" &&
+      host.localName !== "area-card-camera-row",
   );
   if (hosts.length === 0) return false;
   return hosts.every((host) => host.shadowRoot?.querySelector("ha-card"));
@@ -234,7 +244,11 @@ function applyPinnedSideBySide(card: HTMLElement, follow = true): void {
 
   let actionsVisible = false;
   for (const host of pinnedInnerHosts(card)) {
-    if (host.localName === "area-card-light-row" || host.localName === "area-card-camera-row") continue;
+    if (
+      host.localName === "area-card-light-row" ||
+      host.localName === "area-card-device-row" ||
+      host.localName === "area-card-camera-row"
+    ) continue;
     const root = host.shadowRoot;
     if (!root) continue;
     if (root.querySelector(".actions")) actionsVisible = true;
@@ -266,7 +280,10 @@ function applyPinnedSideBySide(card: HTMLElement, follow = true): void {
 function pinnedSplitApplied(card: HTMLElement): boolean {
   if (card.dataset.pinSplit !== "1") return true;
   const hosts = pinnedInnerHosts(card).filter(
-    (host) => host.localName !== "area-card-light-row" && host.localName !== "area-card-camera-row",
+    (host) =>
+      host.localName !== "area-card-light-row" &&
+      host.localName !== "area-card-device-row" &&
+      host.localName !== "area-card-camera-row",
   );
   if (hosts.length === 0) return false;
   return hosts.some((host) => {

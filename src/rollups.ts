@@ -321,21 +321,34 @@ export function sectionHasEntities(id: RollupId, sections: AreaSections): boolea
 export function withoutSections(sections: AreaSections, hide: readonly RollupId[]): AreaSections {
   if (hide.length === 0) return sections;
   const result: AreaSections = { ...sections };
+  const dropDeviceSensors = (ids: readonly string[]) => {
+    if (!result.deviceSensors || ids.length === 0) return;
+    const next = { ...result.deviceSensors };
+    let changed = false;
+    for (const id of ids) {
+      if (id in next) {
+        delete next[id];
+        changed = true;
+      }
+    }
+    if (!changed) return;
+    result.deviceSensors = Object.keys(next).length > 0 ? next : undefined;
+  };
   for (const id of hide) {
     switch (id) {
-      case "climate": result.climate = []; break;
-      case "lights": result.lights = []; result.lightLeds = {}; break;
-      case "media": result.mediaPlayers = []; break;
-      case "cameras": result.cameras = []; result.cameraDetections = undefined; break;
-      case "switches": result.switches = []; break;
-      case "occupancy": result.occupancy = []; break;
-      case "openings": result.openings = []; break;
+      case "climate": dropDeviceSensors(result.climate); result.climate = []; break;
+      case "lights": dropDeviceSensors(result.lights); result.lights = []; result.lightLeds = {}; break;
+      case "media": dropDeviceSensors(result.mediaPlayers); result.mediaPlayers = []; break;
+      case "cameras": dropDeviceSensors(result.cameras); result.cameras = []; result.cameraDetections = undefined; break;
+      case "switches": dropDeviceSensors(result.switches); result.switches = []; break;
+      case "occupancy": dropDeviceSensors(result.occupancy.map((o) => o.entityId)); result.occupancy = []; break;
+      case "openings": dropDeviceSensors(result.openings); result.openings = []; break;
       case "satellites": result.satellites = []; break;
       case "helpers": result.helpers = []; result.selects = []; break;
       case "automations": result.automations = []; break;
       case "sensors": result.sensors = []; result.sensorDevices = undefined; break;
-      case "locks": result.locks = []; break;
-      case "vacuums": result.vacuums = []; break;
+      case "locks": dropDeviceSensors(result.locks); result.locks = []; break;
+      case "vacuums": dropDeviceSensors(result.vacuums); result.vacuums = []; break;
       case "buttons": result.buttons = []; break;
       case "scenes": result.scenes = []; break;
       case "scripts": result.scripts = []; break;

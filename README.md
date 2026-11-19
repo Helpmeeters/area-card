@@ -15,9 +15,10 @@ Each card requires only the selection of an Area or Floor (or nothing at all for
 
 ## Features
 
-- **Automatic Area Discovery** — Pick an area and the card reads its name, icon, picture, and assigned entities, building a `#area-<area_id>` popup organized by domain.
+- **Automatic Area Discovery** — Pick an area and the card reads its name, icon, picture, and assigned entities, building a `#area-<area_id>` popup organized by domain. Non-climate sensors on a device with a single main entity are automatically folded into that entity's row.
 - **Status Dots & Tooltips** — Fixed-slot section dots (`lights`, `media`, `cameras`, `switches`, `openings`, `satellites`, `sensors`, `locks`, `vacuums`) with hover tooltips listing every row in that section.
 - **Subtitles & Presence Pill** — Compact subtitle with temperature and humidity readings, helper counts, and automation summaries, plus a presence pill (`Occupied`, relative last-seen, or `Clear`) on collapsed Area Cards and Floor headers with occupancy tooltips.
+- **Camera Detections** — Frigate detection count badges and active class tooltips overlaid on camera cards while keeping person occupancy linked to area presence.
 - **Pinning & Card Backgrounds** — Pin favorite entities under the area button (**Always** or **While on** with a 2-minute grace window). Collapsed cards default to a live light-color averaging background (`Light tint`), with a separate **Card Background** selector in popup edit mode (`Light tint`, `Area picture`, or `Camera`).
 - **Battery Overlay** — Toggleable per-area battery percentage badges (**Off**, **Green**, **Yellow**, **Red**) synced per user across browsers.
 - **Floor & Floors Cards** — Collapsible **Floor Card** with a rolled-up presence pill and median temperature and humidity in the floor header, plus a header options menu (**Areas when collapsed** stepper and **Sort by presence** toggle, synced per user across browsers) and floor-wide dot alignment — plus **Floors Card** to render every floor in registry order.

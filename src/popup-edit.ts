@@ -369,15 +369,21 @@ function innerHosts(card: HTMLElement): HTMLElement[] {
     for (const child of root.children) {
       if (!(child instanceof HTMLElement) || !child.localName.includes("-")) continue;
       hosts.push(child);
-      if (child.localName === "area-card-light-row") {
-        for (const nested of child.children) {
-          if (nested instanceof HTMLElement && nested.localName.startsWith("area-card-mushroom")) hosts.push(nested);
-        }
-      } else if (child.localName === "area-card-camera-row") {
-        for (const nested of child.children) {
-          if (nested instanceof HTMLElement && nested.localName === "hui-card") {
-            for (const inner of nested.children) {
-              if (inner instanceof HTMLElement && inner.localName.includes("-")) hosts.push(inner);
+      if (
+        child.localName === "area-card-light-row" ||
+        child.localName === "area-card-device-row" ||
+        child.localName === "area-card-camera-row"
+      ) {
+        const queue: HTMLElement[] = [child];
+        while (queue.length > 0) {
+          const parent = queue.shift()!;
+          for (const nested of parent.children) {
+            if (!(nested instanceof HTMLElement)) continue;
+            if (nested.localName === "area-card-device-row" || nested.localName === "area-card-camera-row" || nested.localName === "hui-card") {
+              if (nested.localName !== "hui-card") hosts.push(nested);
+              queue.push(nested);
+            } else if (nested.localName.includes("-")) {
+              hosts.push(nested);
             }
           }
         }
@@ -411,7 +417,11 @@ function stylePreviewCard(card: HTMLElement, edge: PinnedEdge, sideBySide: boole
     host.style.setProperty("margin", "0", "important");
     host.style.setProperty("display", "block", "important");
     host.style.setProperty("width", "100%", "important");
-    if (host.localName === "area-card-light-row" || host.localName === "area-card-camera-row") continue;
+    if (
+      host.localName === "area-card-light-row" ||
+      host.localName === "area-card-device-row" ||
+      host.localName === "area-card-camera-row"
+    ) continue;
     const root = host.shadowRoot;
     if (!root) continue;
     syncPreviewStyle(
@@ -437,7 +447,11 @@ function stylePreviewCard(card: HTMLElement, edge: PinnedEdge, sideBySide: boole
     }
   }
   const ready = hosts.some(
-    (h) => h.localName !== "area-card-light-row" && h.localName !== "area-card-camera-row" && h.shadowRoot?.querySelector("ha-card"),
+    (h) =>
+      h.localName !== "area-card-light-row" &&
+      h.localName !== "area-card-device-row" &&
+      h.localName !== "area-card-camera-row" &&
+      h.shadowRoot?.querySelector("ha-card"),
   );
   if (!ready && tries < 30 && card.isConnected && typeof requestAnimationFrame === "function") {
     requestAnimationFrame(() => stylePreviewCard(card, edge, sideBySide, tries + 1));

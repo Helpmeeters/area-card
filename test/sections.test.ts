@@ -9,6 +9,7 @@ import {
 import { buildButtonConfig } from "../src/button-config";
 import { computeCameraDetectionBadges } from "../src/camera-detections";
 import { climateSubtitle } from "../src/climate-subtitle";
+import { formatDeviceSensors } from "../src/device-row";
 import { floorExpandedKey, floorRuntimeConfig, parseFloorExpanded } from "../src/floor-state";
 import { areasOnFloor, floorDisplay } from "../src/floors";
 import { stripRoomName } from "../src/names";
@@ -20,6 +21,7 @@ import {
   areaUnavailable,
   classifyArea,
   emptySections,
+  membershipKey,
   type AreaEntry,
   type AreaSections,
   type ClassifierHass,
@@ -1585,6 +1587,146 @@ describe("device sections", () => {
         "entity:sensor.washer_status",
       ],
     );
+  });
+
+  it("absorbs Other Sensors into a single main-section entity on the same device", () => {
+    const h = hass({
+      devices: [
+        { id: "lamp", area_id: "living_room", name: "Living Room Work Lamp" },
+        { id: "outlet", area_id: "living_room", name: "Living Room Corner Outlet" },
+        { id: "multi", area_id: "living_room", name: "Dual Relay" },
+        { id: "mixed", area_id: "living_room", name: "Mixed Device" },
+      ],
+      entities: [
+        { entity_id: "light.den_work_lamp", device_id: "lamp" },
+        { entity_id: "sensor.work_lamp_power", device_id: "lamp" },
+        { entity_id: "sensor.work_lamp_energy", device_id: "lamp" },
+        { entity_id: "switch.corner_outlet", device_id: "outlet" },
+        { entity_id: "sensor.corner_outlet_power", device_id: "outlet" },
+        { entity_id: "binary_sensor.corner_outlet_fan_is_on", device_id: "outlet" },
+        { entity_id: "sensor.corner_outlet_unknown", device_id: "outlet" },
+        // Device with 2 lights in the same main section: sensors stay in Other Sensors.
+        { entity_id: "light.multi_a", device_id: "multi" },
+        { entity_id: "light.multi_b", device_id: "multi" },
+        { entity_id: "sensor.multi_power", device_id: "multi" },
+        // Device with 1 light and 1 switch across main sections: sensors stay in Other Sensors.
+        { entity_id: "light.mixed_lamp", device_id: "mixed" },
+        { entity_id: "switch.mixed_plug", device_id: "mixed" },
+        { entity_id: "sensor.mixed_power", device_id: "mixed" },
+      ],
+      states: {
+        "light.den_work_lamp": state("light.den_work_lamp", "off", { friendly_name: "Living Room Work Lamp" }),
+        "sensor.work_lamp_power": state("sensor.work_lamp_power", "0.0", {
+          friendly_name: "Work Lamp Power",
+          unit_of_measurement: "W",
+        }),
+        "sensor.work_lamp_energy": state("sensor.work_lamp_energy", "0.0105", {
+          friendly_name: "Work Lamp Energy",
+          unit_of_measurement: "kWh",
+        }),
+        "switch.corner_outlet": state("switch.corner_outlet", "on", { friendly_name: "Living Room Corner Outlet" }),
+        "sensor.corner_outlet_power": state("sensor.corner_outlet_power", "45", {
+          friendly_name: "Corner Outlet Power",
+          unit_of_measurement: "W",
+        }),
+        "binary_sensor.corner_outlet_fan_is_on": state("binary_sensor.corner_outlet_fan_is_on", "off", {
+          friendly_name: "Living Room Corner Outlet Fan is on",
+        }),
+        "sensor.corner_outlet_unknown": state("sensor.corner_outlet_unknown", "unknown", {
+          friendly_name: "Corner Outlet Unknown",
+          unit_of_measurement: "V",
+        }),
+        "light.multi_a": state("light.multi_a", "off", { friendly_name: "Multi A" }),
+        "light.multi_b": state("light.multi_b", "off", { friendly_name: "Multi B" }),
+        "sensor.multi_power": state("sensor.multi_power", "10", { friendly_name: "Multi Power", unit_of_measurement: "W" }),
+        "light.mixed_lamp": state("light.mixed_lamp", "off", { friendly_name: "Mixed Lamp" }),
+        "switch.mixed_plug": state("switch.mixed_plug", "off", { friendly_name: "Mixed Plug" }),
+        "sensor.mixed_power": state("sensor.mixed_power", "12", { friendly_name: "Mixed Power", unit_of_measurement: "W" }),
+      },
+    });
+
+    const sections = classifyArea(h, "living_room");
+    assert.deepEqual(sections.sensors, ["sensor.mixed_power", "sensor.multi_power"]);
+    assert.deepEqual(sections.deviceSensors, {
+      "light.den_work_lamp": ["sensor.work_lamp_energy", "sensor.work_lamp_power"],
+      "switch.corner_outlet": [
+        "sensor.corner_outlet_power",
+        "sensor.corner_outlet_unknown",
+        "binary_sensor.corner_outlet_fan_is_on",
+      ],
+    });
+    assert.equal(sections.sensorDevices?.["sensor.work_lamp_power"], undefined);
+    assert.equal(sections.sensorDevices?.["sensor.multi_power"]?.id, "multi");
+
+    const cards = buildPopupCards(sections, h.states, "Living Room");
+    const lampCard = cards.find((card) => card.entity === "light.den_work_lamp");
+    assert.ok(lampCard);
+    assert.equal(lampCard.type, "custom:area-card-mushroom-template-card");
+    assert.equal(String(lampCard.secondary).includes("sensor.work_lamp_energy"), true);
+    assert.equal(String(lampCard.secondary).includes("sensor.work_lamp_power"), true);
+
+    const outletWrapper = cards.find(
+      (card) => card.type === "custom:area-card-device-row" && (card.card as Record<string, unknown>)?.entity === "switch.corner_outlet",
+    );
+    assert.ok(outletWrapper);
+    assert.deepEqual(
+      formatDeviceSensors(outletWrapper.sensors as string[], h.states!, {
+        roomName: "Living Room",
+        deviceName: "Corner Outlet",
+      }),
+      ["45 W", "Fan is on: Off"],
+    );
+
+    const hiddenLights = withoutSections(sections, ["lights"]);
+    assert.equal(hiddenLights.deviceSensors?.["light.den_work_lamp"], undefined);
+    assert.deepEqual(hiddenLights.deviceSensors?.["switch.corner_outlet"], [
+      "sensor.corner_outlet_power",
+      "sensor.corner_outlet_unknown",
+      "binary_sensor.corner_outlet_fan_is_on",
+    ]);
+
+    const keyBefore = membershipKey("living_room", "Living Room", "mdi:sofa", sections);
+    const keyAfter = membershipKey("living_room", "Living Room", "mdi:sofa", hiddenLights);
+    assert.notEqual(keyBefore, keyAfter);
+  });
+
+  it("removes Other Sensors section and dot when all sensors are absorbed into main entities", () => {
+    const h = hass({
+      devices: [{ id: "bulb", area_id: "hall", name: "Hall Overhead 1" }],
+      entities: [
+        { entity_id: "light.hall_overhead_1", device_id: "bulb" },
+        { entity_id: "sensor.hall_overhead_1_power", device_id: "bulb" },
+        { entity_id: "sensor.hall_overhead_1_energy", device_id: "bulb" },
+      ],
+      states: {
+        "light.hall_overhead_1": state("light.hall_overhead_1", "off", { friendly_name: "Hall Overhead 1" }),
+        "sensor.hall_overhead_1_power": state("sensor.hall_overhead_1_power", "0.0", {
+          friendly_name: "Hall Overhead 1 Power",
+          unit_of_measurement: "W",
+        }),
+        "sensor.hall_overhead_1_energy": state("sensor.hall_overhead_1_energy", "0.01", {
+          friendly_name: "Hall Overhead 1 Energy",
+          unit_of_measurement: "kWh",
+        }),
+      },
+    });
+    const sections = classifyArea(h, "hall");
+    assert.deepEqual(sections.sensors, []);
+    assert.deepEqual(sections.deviceSensors, {
+      "light.hall_overhead_1": ["sensor.hall_overhead_1_energy", "sensor.hall_overhead_1_power"],
+    });
+    const cards = buildPopupCards(sections, h.states, "Hall");
+    assert.equal(cards.some((card) => card.title === "Other Sensors"), false);
+    const button = buildButtonConfig({
+      areaId: "hall",
+      name: "Hall",
+      icon: "mdi:hallway",
+      sections,
+      states: h.states!,
+      dotSlots: collapsedDotSlots([]),
+    });
+    const dots = button.sub_button as Array<{ css_class: string }>;
+    assert.equal(dots[collapsedDotSlots([]).indexOf("sensors")]?.css_class, "area-dot-sensors-empty");
   });
 });
 

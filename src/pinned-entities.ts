@@ -7,6 +7,11 @@ export const PINNED_KEY_PREFIX = "area-card-pinned:";
 const SECTION_TITLE = "custom:area-card-section-title";
 const LIGHT_ROW = "custom:area-card-light-row";
 const CAMERA_ROW = "custom:area-card-camera-row";
+const DEVICE_ROW = "custom:area-card-device-row";
+
+function isWrapperType(type: unknown): boolean {
+  return type === LIGHT_ROW || type === CAMERA_ROW || type === DEVICE_ROW;
+}
 
 export function pinnedKey(areaId: string): string {
   return `${PINNED_KEY_PREFIX}${areaId}`;
@@ -238,15 +243,17 @@ function nonEmptyString(value: unknown): string | null {
  */
 export function pinEntityId(config: Record<string, unknown> | null | undefined): string | null {
   if (!config) return null;
-  const type = config.type;
-  if (type === SECTION_TITLE) return null;
-  if (typeof type === "string" && type.endsWith("chips-card")) return null;
-  if (type === LIGHT_ROW || type === CAMERA_ROW) {
-    const card = config.card;
-    if (typeof card !== "object" || card === null) return null;
-    return nonEmptyString((card as Record<string, unknown>).entity);
+  let current: Record<string, unknown> = config;
+  for (let depth = 0; depth < 4; depth += 1) {
+    const type = current.type;
+    if (type === SECTION_TITLE) return null;
+    if (typeof type === "string" && type.endsWith("chips-card")) return null;
+    if (!isWrapperType(type)) return nonEmptyString(current.entity);
+    const card = current.card;
+    if (typeof card !== "object" || card === null || Array.isArray(card)) return null;
+    current = card as Record<string, unknown>;
   }
-  return nonEmptyString(config.entity);
+  return nonEmptyString(current.entity);
 }
 
 /** Stored pin order, original card objects, first entity id only. */
@@ -312,10 +319,14 @@ export function pinnedEdgeRadius(edge: PinnedEdge): string {
 }
 
 function pinnedBody(config: Record<string, unknown>): Record<string, unknown> {
-  if (config.type !== LIGHT_ROW && config.type !== CAMERA_ROW) return config;
-  const card = config.card;
-  if (typeof card !== "object" || card === null || Array.isArray(card)) return config;
-  return card as Record<string, unknown>;
+  let current = config;
+  for (let depth = 0; depth < 4; depth += 1) {
+    if (!isWrapperType(current.type)) return current;
+    const card = current.card;
+    if (typeof card !== "object" || card === null || Array.isArray(card)) return current;
+    current = card as Record<string, unknown>;
+  }
+  return current;
 }
 
 function gridRows(config: Record<string, unknown>): unknown {

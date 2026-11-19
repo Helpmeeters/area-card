@@ -85,6 +85,21 @@ describe("theme fallback", () => {
       syncCardThemeFallback(fakeHost, { themes: { darkMode: true } });
       assert.equal(fakeHost.dataset.areaCardThemeFallback, undefined);
       assert.equal(props.size, 0);
+
+      // When not needed (e.g. no pinned elements), opaque themes are left alone
+      // and any previously applied fallback overrides are cleared.
+      computedBg = "rgb(28, 28, 30)";
+      syncCardThemeFallback(fakeHost, { themes: { darkMode: true } }, false);
+      assert.equal(fakeHost.dataset.areaCardThemeFallback, undefined);
+      assert.equal(props.size, 0);
+
+      syncCardThemeFallback(fakeHost, { themes: { darkMode: true } }, true);
+      assert.equal(fakeHost.dataset.areaCardThemeFallback, "1");
+      assert.ok(props.size > 0);
+
+      syncCardThemeFallback(fakeHost, { themes: { darkMode: true } }, false);
+      assert.equal(fakeHost.dataset.areaCardThemeFallback, undefined);
+      assert.equal(props.size, 0);
     } finally {
       (globalThis as Record<string, unknown>).document = origDocument;
       (globalThis as Record<string, unknown>).getComputedStyle = origGetComputedStyle;

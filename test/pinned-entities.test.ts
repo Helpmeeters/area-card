@@ -276,6 +276,29 @@ describe("pinEntityId", () => {
     );
   });
 
+  it("returns the inner entity of a device row, including nested inside a light row", () => {
+    assert.equal(
+      pinEntityId({
+        type: "custom:area-card-device-row",
+        sensors: ["sensor.outlet_power"],
+        card: { type: "custom:area-card-mushroom-entity-card", entity: "switch.outlet" },
+      }),
+      "switch.outlet",
+    );
+    assert.equal(
+      pinEntityId({
+        type: "custom:area-card-light-row",
+        led_entity: "switch.lamp_led",
+        card: {
+          type: "custom:area-card-device-row",
+          sensors: ["sensor.lamp_power"],
+          card: { type: "custom:area-card-mushroom-light-card", entity: "light.lamp" },
+        },
+      }),
+      "light.lamp",
+    );
+  });
+
   it("returns null for a light row without an entity", () => {
     assert.equal(pinEntityId({ type: "custom:area-card-light-row", entity: "light.kitchen" }), null);
     assert.equal(pinEntityId({ type: "custom:area-card-light-row", card: { type: "custom:area-card-mushroom-light-card" } }), null);

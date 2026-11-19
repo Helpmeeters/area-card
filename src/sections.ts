@@ -112,6 +112,8 @@ export interface AreaSections {
   automations: string[];
   sensors: string[];
   sensorDevices?: Record<string, SensorDeviceRef>;
+  /** Other Sensors absorbed into a single main-section entity on the same device. */
+  deviceSensors?: Record<string, string[]>;
   locks: string[];
   vacuums: string[];
   buttons: string[];
@@ -394,6 +396,7 @@ export function classifyArea(hass: ClassifierHass, areaId: string): AreaSections
   appendNamedAutomations(hass, areaId, allEntries, states, sections);
   appendSatelliteMediaPlayers(sections, allEntries, devices, states);
   dropPlayersShownOnKioskCard(sections, allEntries, states);
+  absorbSingleDeviceSensors(sections, entries, sensorDevices, states);
 
   sections.climate = sortIds(sections.climate, states);
   sections.lights = sortIds(sections.lights, states);
@@ -440,6 +443,10 @@ export function membershipKey(areaId: string, name: string, icon: string, sectio
       return `${camId}=${det.totalCountEntityId ?? ""}=${det.allOccupancyEntityId ?? ""}=${det.motionEntityId ?? ""}=${det.reviewStatusEntityId ?? ""}=${cls}`;
     })
     .join(";");
+  const deviceSensors = Object.keys(sections.deviceSensors ?? {})
+    .sort()
+    .map((entityId) => `${entityId}=${(sections.deviceSensors![entityId] ?? []).join(",")}`)
+    .join(";");
   return [
     areaId,
     name,
@@ -458,12 +465,63 @@ export function membershipKey(areaId: string, name: string, icon: string, sectio
     sections.selects.join(","),
     sections.automations.join(","),
     sensorDevs,
+    deviceSensors,
     sections.locks.join(","),
     sections.vacuums.join(","),
     sections.buttons.join(","),
     sections.scenes.join(","),
     sections.scripts.join(","),
   ].join("|");
+}
+
+function absorbSingleDeviceSensors(
+  sections: AreaSections,
+  entries: readonly RegistryEntry[],
+  sensorDevices: Record<string, SensorDeviceRef>,
+  states: Record<string, EntityState>,
+): void {
+  if (sections.sensors.length === 0) return;
+  const entryById = new Map(entries.map((entry) => [entry.entity_id, entry]));
+  const mainByDevice = new Map<string, string[]>();
+  const mainIds = [
+    ...sections.climate,
+    ...sections.lights,
+    ...sections.mediaPlayers,
+    ...sections.cameras,
+    ...sections.switches,
+    ...sections.occupancy.map((item) => item.entityId),
+    ...sections.openings,
+    ...sections.locks,
+    ...sections.vacuums,
+  ];
+  for (const id of mainIds) {
+    const deviceId = entryById.get(id)?.device_id;
+    if (!deviceId) continue;
+    const list = mainByDevice.get(deviceId);
+    if (list) list.push(id);
+    else mainByDevice.set(deviceId, [id]);
+  }
+
+  const absorbed = new Set<string>();
+  const deviceSensors: Record<string, string[]> = {};
+  for (const sensorId of sections.sensors) {
+    const deviceId = entryById.get(sensorId)?.device_id;
+    if (!deviceId) continue;
+    const mains = mainByDevice.get(deviceId);
+    if (!mains || mains.length !== 1) continue;
+    const targetId = mains[0];
+    absorbed.add(sensorId);
+    if (!deviceSensors[targetId]) deviceSensors[targetId] = [];
+    deviceSensors[targetId].push(sensorId);
+  }
+
+  if (absorbed.size === 0) return;
+  sections.sensors = sections.sensors.filter((id) => !absorbed.has(id));
+  for (const sensorId of absorbed) delete sensorDevices[sensorId];
+  for (const targetId of Object.keys(deviceSensors)) {
+    deviceSensors[targetId] = sortIds(deviceSensors[targetId], states);
+  }
+  sections.deviceSensors = deviceSensors;
 }
 
 function appendNamedAutomations(

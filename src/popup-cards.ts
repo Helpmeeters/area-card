@@ -1,3 +1,4 @@
+import { formatDeviceSensors, sensorLabel } from "./device-row";
 import { mergeEntityOrder, type AreaEntityOrder } from "./entity-order";
 import { kioskSatelliteCardType } from "./kiosk-card";
 import { stripRoomName } from "./names";
@@ -32,6 +33,7 @@ interface RowLayout {
 }
 const LIGHT_ROW = "custom:area-card-light-row";
 const CAMERA_ROW = "custom:area-card-camera-row";
+const DEVICE_ROW = "custom:area-card-device-row";
 const SECTION_TITLE = "custom:area-card-section-title";
 const STATUS_HEADING = {
   title: "Status",
@@ -146,70 +148,108 @@ function sectionBody(
       ];
     }
     case "climate":
-      return sections.climate.map((entity) => climateCard(entity, states, roomName, rows));
-    case "lights":
-      return sections.lights.map((entity) =>
-        withLedDot(
-          lightCard(entity, states[entity], states, roomName, rows, Boolean(sections.lightLeds[entity])),
-          sections.lightLeds[entity],
-        ),
-      );
-    case "media":
-      return sections.mediaPlayers.map((entity) =>
-        named(
-          {
-            type: "media-control",
-            entity,
-            grid_options: FULL,
-          },
-          entity,
+      return sections.climate.map((entity) =>
+        withDeviceSensors(
+          climateCard(entity, states, roomName, rows, sections.deviceSensors?.[entity]),
+          sections.deviceSensors?.[entity],
           states,
           roomName,
+          entity,
+        ),
+      );
+    case "lights":
+      return sections.lights.map((entity) => {
+        const absorbed = sections.deviceSensors?.[entity];
+        const card = lightCard(entity, states[entity], states, roomName, rows, Boolean(sections.lightLeds[entity]), absorbed);
+        const wrapped = lightExposesControls(states[entity])
+          ? withDeviceSensors(card, absorbed, states, roomName, entity)
+          : card;
+        return withLedDot(wrapped, sections.lightLeds[entity]);
+      });
+    case "media":
+      return sections.mediaPlayers.map((entity) =>
+        withDeviceSensors(
+          named(
+            {
+              type: "media-control",
+              entity,
+              grid_options: FULL,
+            },
+            entity,
+            states,
+            roomName,
+          ),
+          sections.deviceSensors?.[entity],
+          states,
+          roomName,
+          entity,
         ),
       );
     case "cameras":
       return sections.cameras.map((entity) =>
-        withCameraDetections(
-          cameraCard(entity, states, roomName),
-          sections.cameraDetections?.[entity],
+        withDeviceSensors(
+          withCameraDetections(
+            cameraCard(entity, states, roomName),
+            sections.cameraDetections?.[entity],
+          ),
+          sections.deviceSensors?.[entity],
+          states,
+          roomName,
+          entity,
         ),
       );
     case "switches":
       return sections.switches.map((entity) =>
-        entityCard(entity, states, roomName, rows, {
-          tap_action: { action: "toggle" },
-          hold_action: { action: "more-info" },
-        }),
+        withDeviceSensors(
+          entityCard(entity, states, roomName, rows, {
+            tap_action: { action: "toggle" },
+            hold_action: { action: "more-info" },
+          }, sections.deviceSensors?.[entity]),
+          sections.deviceSensors?.[entity],
+          states,
+          roomName,
+          entity,
+        ),
       );
     case "occupancy":
       return sections.occupancy.map((item) =>
-        occupancyCard(item.entityId, states, roomName, rows, item.pressureEntityId),
+        occupancyCard(item.entityId, states, roomName, rows, item.pressureEntityId, sections.deviceSensors?.[item.entityId]),
       );
     case "openings":
-      return sections.openings.map((entity) =>
-        entity.startsWith("cover.")
+      return sections.openings.map((entity) => {
+        const absorbed = sections.deviceSensors?.[entity];
+        const card = entity.startsWith("cover.")
           ? named(
               {
                 type: mushroomCardType("cover-card"),
                 entity,
                 show_position_control: true,
                 show_buttons_control: true,
-                grid_options: gridFor(rows, entityTitle(entity, states, roomName), entitySecondaries(states[entity], rows)),
+                grid_options: gridFor(
+                  rows,
+                  entityTitle(entity, states, roomName),
+                  withAbsorbedSecondaries(entitySecondaries(states[entity], rows), absorbed, states, roomName, entity, rows),
+                ),
               },
               entity,
               states,
               roomName,
             )
-          : entityCard(entity, states, roomName, rows),
-      );
+          : entityCard(entity, states, roomName, rows, {}, absorbed);
+        return withDeviceSensors(card, absorbed, states, roomName, entity);
+      });
     case "satellites":
       return sections.satellites.map((item) => satelliteCard(item, states, roomName, rows));
     case "sensors":
       return sensorCards(sections, states, roomName, rows);
     case "locks":
-      return sections.locks.map((entity) => lockCard(entity, states, roomName));
+      return sections.locks.map((entity) =>
+        withDeviceSensors(lockCard(entity, states, roomName), sections.deviceSensors?.[entity], states, roomName, entity),
+      );
     case "vacuums":
-      return sections.vacuums.map((entity) => vacuumCard(entity, states, roomName));
+      return sections.vacuums.map((entity) =>
+        withDeviceSensors(vacuumCard(entity, states, roomName), sections.deviceSensors?.[entity], states, roomName, entity),
+      );
     case "buttons":
       return sections.buttons.map((entity) =>
         commandCard(entity, states, roomName, rows, buttonPressService(entity), "mdi:gesture-tap-button", "pink"),
@@ -279,6 +319,7 @@ function lightCard(
   roomName: string,
   layout: RowLayout,
   led = false,
+  absorbedSensors?: readonly string[],
 ): Record<string, unknown> {
   const title = entityTitle(entity, states, roomName);
   if (lightExposesControls(state)) {
@@ -291,7 +332,12 @@ function lightCard(
         show_color_temp_control: true,
         show_color_control: true,
         collapsible_controls: true,
-        grid_options: gridFor(layout, title, entitySecondaries(state, layout), led),
+        grid_options: gridFor(
+          layout,
+          title,
+          withAbsorbedSecondaries(entitySecondaries(state, layout), absorbedSensors, states, roomName, entity, layout),
+          led,
+        ),
       },
       entity,
       states,
@@ -302,12 +348,27 @@ function lightCard(
   // icon tap from the rest of the row and still renders a Mushroom row.
   // Its secondary is the raw state title, so "Unavailable" is the longest line.
   const literal = layout.literalState;
+  const deviceName = title.startsWith("{{") ? "" : title;
+  const absorbedLiteral =
+    literal && absorbedSensors?.length
+      ? formatDeviceSensors(absorbedSensors, states, {
+          roomName,
+          deviceName,
+          formatEntityState: layout.formatEntityState,
+        })
+      : [];
+  const absorbedTemplate =
+    !literal && absorbedSensors?.length
+      ? absorbedSensorsTemplate(absorbedSensors, states, roomName, deviceName)
+      : "";
   return {
     type: mushroomCardType("template-card"),
     entity,
     entity_id: entity,
     primary: title,
-    secondary: literal ? shownState(state) : `{{ states('${entity}') | title }}`,
+    secondary: literal
+      ? [shownState(state), ...absorbedLiteral].join(" · ")
+      : `{{ states('${entity}') | title }}${absorbedTemplate}`,
     icon: literal ? shownIcon(state, "mdi:lightbulb") : `{{ state_attr('${entity}', 'icon') or 'mdi:lightbulb' }}`,
     icon_color: literal
       ? state?.state === "on"
@@ -324,7 +385,19 @@ function lightCard(
     },
     icon_hold_action: { action: "more-info" },
     icon_double_tap_action: { action: "none" },
-    grid_options: gridFor(layout, title, [UNAVAILABLE], led),
+    grid_options: gridFor(
+      layout,
+      title,
+      withAbsorbedSecondaries(
+        [absorbedSensors?.length && state && state.state !== "unavailable" && state.state !== "unknown" ? shownState(state) : UNAVAILABLE],
+        absorbedSensors,
+        states,
+        roomName,
+        entity,
+        layout,
+      ),
+      led,
+    ),
   };
 }
 
@@ -333,6 +406,26 @@ function withLedDot(card: Record<string, unknown>, ledEntityId?: string): Record
   return {
     type: LIGHT_ROW,
     led_entity: ledEntityId,
+    card,
+    grid_options: card.grid_options ?? FULL,
+  };
+}
+
+function withDeviceSensors(
+  card: Record<string, unknown>,
+  sensorIds: readonly string[] | undefined,
+  states: Record<string, EntityState>,
+  roomName: string,
+  entity: string,
+): Record<string, unknown> {
+  if (!sensorIds || sensorIds.length === 0) return card;
+  const title = entityTitle(entity, states, roomName);
+  const deviceName = title.startsWith("{{") ? "" : title;
+  return {
+    type: DEVICE_ROW,
+    sensors: [...sensorIds],
+    ...(roomName ? { room_name: roomName } : {}),
+    ...(deviceName ? { device_name: deviceName } : {}),
     card,
     grid_options: card.grid_options ?? FULL,
   };
@@ -440,13 +533,18 @@ function entityCard(
   roomName: string,
   layout: RowLayout,
   extra: Record<string, unknown> = {},
+  absorbedSensors?: readonly string[],
 ): Record<string, unknown> {
   return named(
     {
       type: mushroomCardType("entity-card"),
       entity,
       ...extra,
-      grid_options: gridFor(layout, entityTitle(entity, states, roomName), entitySecondaries(states[entity], layout)),
+      grid_options: gridFor(
+        layout,
+        entityTitle(entity, states, roomName),
+        withAbsorbedSecondaries(entitySecondaries(states[entity], layout), absorbedSensors, states, roomName, entity, layout),
+      ),
     },
     entity,
     states,
@@ -459,6 +557,7 @@ function climateCard(
   states: Record<string, EntityState>,
   roomName: string,
   layout: RowLayout,
+  absorbedSensors?: readonly string[],
 ): Record<string, unknown> {
   const domain = entity.split(".")[0];
   if (domain === "climate") {
@@ -487,7 +586,7 @@ function climateCard(
     );
   }
   // Sensors, water heaters, and any other climate-section entity. Mushroom has no water-heater card.
-  return entityCard(entity, states, roomName, layout);
+  return entityCard(entity, states, roomName, layout, {}, absorbedSensors);
 }
 
 function lockCard(
@@ -578,18 +677,34 @@ function occupancyCard(
   roomName: string,
   layout: RowLayout,
   pressureId?: string,
+  absorbedSensors?: readonly string[],
 ): Record<string, unknown> {
   const title = entityTitle(entity, states, roomName);
   const state = states[entity];
   const literal = layout.literalState;
+  const deviceName = title.startsWith("{{") ? "" : title;
   const pressure = pressureId
     ? `{% set p = '${pressureId}' %}{% if states(p) not in ['unknown', 'unavailable', 'none', ''] %} · {{ states(p) }}{% set unit = state_attr(p, 'unit_of_measurement') %}{% if unit %} {{ unit }}{% endif %}{% endif %}`
     : "";
+  const absorbedLiteral =
+    literal && absorbedSensors?.length
+      ? formatDeviceSensors(absorbedSensors, states, {
+          roomName,
+          deviceName,
+          formatEntityState: layout.formatEntityState,
+        })
+      : [];
+  const absorbedTemplate =
+    !literal && absorbedSensors?.length
+      ? absorbedSensorsTemplate(absorbedSensors, states, roomName, deviceName)
+      : "";
   return {
     type: mushroomCardType("template-card"),
     entity,
     primary: title,
-    secondary: literal ? occupancyLiteral(state, pressureId ? states[pressureId] : undefined) : `{{ states('${entity}') | title }}${pressure}`,
+    secondary: literal
+      ? [occupancyLiteral(state, pressureId ? states[pressureId] : undefined), ...absorbedLiteral].join(" · ")
+      : `{{ states('${entity}') | title }}${pressure}${absorbedTemplate}`,
     icon: literal ? shownIcon(state, "mdi:motion-sensor") : `{{ state_attr('${entity}', 'icon') or 'mdi:motion-sensor' }}`,
     icon_color: literal
       ? state?.state === "on"
@@ -598,7 +713,11 @@ function occupancyCard(
       : `{{ 'amber' if is_state('${entity}', 'on') else 'grey' }}`,
     tap_action: { action: "more-info" },
     hold_action: { action: "none" },
-    grid_options: gridFor(layout, title, occupancySecondaries(pressureId ? states[pressureId] : undefined)),
+    grid_options: gridFor(
+      layout,
+      title,
+      withAbsorbedSecondaries(occupancySecondaries(pressureId ? states[pressureId] : undefined), absorbedSensors, states, roomName, entity, layout),
+    ),
   };
 }
 
@@ -786,6 +905,53 @@ function entitySecondaries(state: EntityState | undefined, layout: RowLayout): s
   const current = currentStateLine(state, layout);
   if (current) lines.push(current);
   return lines;
+}
+
+function withAbsorbedSecondaries(
+  baseLines: string[],
+  absorbedSensors: readonly string[] | undefined,
+  states: Record<string, EntityState>,
+  roomName: string,
+  entity: string,
+  layout: RowLayout,
+): string[] {
+  if (!absorbedSensors || absorbedSensors.length === 0) return baseLines;
+  const title = entityTitle(entity, states, roomName);
+  const deviceName = title.startsWith("{{") ? "" : title;
+  const parts = formatDeviceSensors(absorbedSensors, states, {
+    roomName,
+    deviceName,
+    formatEntityState: layout.formatEntityState,
+  });
+  if (parts.length === 0) return baseLines;
+  const suffix = ` · ${parts.map((part) => widenNumericText(part)).join(" · ")}`;
+  const state = states[entity];
+  const current = currentStateLine(state, layout);
+  if (current && state && state.state !== "unavailable" && state.state !== "unknown") {
+    return [`${current}${suffix}`];
+  }
+  return baseLines.map((line) => `${line}${suffix}`);
+}
+
+function absorbedSensorsTemplate(
+  sensorIds: readonly string[],
+  states: Record<string, EntityState>,
+  roomName: string,
+  deviceName: string,
+): string {
+  return sensorIds
+    .map((id) => {
+      const state = states[id];
+      const unit = state?.attributes?.unit_of_measurement;
+      const hasUnit = typeof unit === "string" && unit.trim() !== "";
+      if (hasUnit) {
+        return `{% set s = states('${id}') %}{% if s not in ['unknown', 'unavailable', 'none', ''] %}{% set u = state_attr('${id}', 'unit_of_measurement') %} · {{ s }}{% if u %} {{ u }}{% endif %}{% endif %}`;
+      }
+      const label = state ? sensorLabel(state, roomName, deviceName).replace(/['\\]/g, "\\$&") : "";
+      const prefix = label ? `${label}: ` : "";
+      return `{% set s = states('${id}') %}{% if s not in ['unknown', 'unavailable', 'none', ''] %} · ${prefix}{{ s | title }}{% endif %}`;
+    })
+    .join("");
 }
 
 function selectSecondaries(state: EntityState | undefined, layout: RowLayout): string[] {
