@@ -196,7 +196,7 @@ function sectionBody(
     case "satellites":
       return sections.satellites.map((item) => satelliteCard(item, states, roomName, rows));
     case "sensors":
-      return sections.sensors.map((entity) => entityCard(entity, states, roomName, rows));
+      return sensorCards(sections, states, roomName, rows);
     case "locks":
       return sections.locks.map((entity) => lockCard(entity, states, roomName));
     case "vacuums":
@@ -322,6 +322,50 @@ function withLedDot(card: Record<string, unknown>, ledEntityId?: string): Record
     card,
     grid_options: card.grid_options ?? FULL,
   };
+}
+
+function sensorCards(
+  sections: AreaSections,
+  states: Record<string, EntityState>,
+  roomName: string,
+  layout: RowLayout,
+): Record<string, unknown>[] {
+  const deviceMap = sections.sensorDevices;
+  if (!deviceMap) {
+    return sections.sensors.map((entity) => entityCard(entity, states, roomName, layout));
+  }
+  const ungrouped: string[] = [];
+  const byDevice = new Map<string, { name: string; entities: string[] }>();
+  for (const entity of sections.sensors) {
+    const dev = deviceMap[entity];
+    if (!dev) {
+      ungrouped.push(entity);
+      continue;
+    }
+    const label = stripRoomName(dev.name, roomName) || dev.name;
+    const group = byDevice.get(dev.id);
+    if (group) {
+      group.entities.push(entity);
+    } else {
+      byDevice.set(dev.id, { name: label, entities: [entity] });
+    }
+  }
+  const cards: Record<string, unknown>[] = ungrouped.map((entity) => entityCard(entity, states, roomName, layout));
+  const groups = [...byDevice.entries()].sort(
+    ([idA, a], [idB, b]) => a.name.localeCompare(b.name) || idA.localeCompare(idB),
+  );
+  for (const [, group] of groups) {
+    cards.push({
+      type: SECTION_TITLE,
+      title: group.name,
+      variant: "group",
+      grid_options: FULL,
+    });
+    for (const entity of group.entities) {
+      cards.push(entityCard(entity, states, roomName, layout));
+    }
+  }
+  return cards;
 }
 
 function titleCard(id: RollupId | "status"): Record<string, unknown> {

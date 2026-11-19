@@ -1548,6 +1548,43 @@ describe("device sections", () => {
     assert.equal(mergedDot?.state, "on");
     assert.equal(mergedDot?.label, "Other Sensors 1/1 On");
   });
+
+  it("groups Other Sensors by device under device subheadings", () => {
+    const h = hass({
+      devices: [
+        { id: "dryer", area_id: "laundry", name: "Laundry Dryer" },
+        { id: "washer", area_id: "laundry", name: "Washer", name_by_user: "Laundry Washer" },
+      ],
+      entities: [
+        { entity_id: "binary_sensor.standalone", area_id: "laundry" },
+        { entity_id: "sensor.dryer_status", device_id: "dryer" },
+        { entity_id: "sensor.dryer_remaining", device_id: "dryer" },
+        { entity_id: "sensor.washer_status", device_id: "washer" },
+      ],
+      states: {
+        "binary_sensor.standalone": state("binary_sensor.standalone", "off", { friendly_name: "Floor Leak" }),
+        "sensor.dryer_status": state("sensor.dryer_status", "off", { friendly_name: "Dryer Current status" }),
+        "sensor.dryer_remaining": state("sensor.dryer_remaining", "unknown", { friendly_name: "Dryer Remaining time" }),
+        "sensor.washer_status": state("sensor.washer_status", "off", { friendly_name: "Washer Current status" }),
+      },
+    });
+    const sections = classifyArea(h, "laundry");
+    const cards = buildPopupCards(sections, h.states, "Laundry");
+    assert.deepEqual(
+      cards.map((card) => (card.title ? `title:${card.title}:${card.variant ?? "section"}` : `entity:${card.entity}`)),
+      [
+        "title:Status:section",
+        "entity:undefined",
+        "title:Other Sensors:section",
+        "entity:binary_sensor.standalone",
+        "title:Dryer:group",
+        "entity:sensor.dryer_status",
+        "entity:sensor.dryer_remaining",
+        "title:Washer:group",
+        "entity:sensor.washer_status",
+      ],
+    );
+  });
 });
 
 describe("section rollups", () => {

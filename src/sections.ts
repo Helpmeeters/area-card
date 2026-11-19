@@ -21,6 +21,7 @@ export interface DeviceEntry {
   area_id?: string | null;
   manufacturer?: string | null;
   name?: string | null;
+  name_by_user?: string | null;
 }
 
 export interface EntityState {
@@ -75,6 +76,11 @@ export interface SatelliteItem {
   alarmEntityId?: string;
 }
 
+export interface SensorDeviceRef {
+  id: string;
+  name: string;
+}
+
 export interface AreaSections {
   climate: string[];
   lights: string[];
@@ -89,6 +95,7 @@ export interface AreaSections {
   selects: string[];
   automations: string[];
   sensors: string[];
+  sensorDevices?: Record<string, SensorDeviceRef>;
   locks: string[];
   vacuums: string[];
   buttons: string[];
@@ -226,6 +233,7 @@ export function classifyArea(hass: ClassifierHass, areaId: string): AreaSections
   const lightLeds = assignLightLeds(renderedLights, entries, satelliteDevices);
   const sections = emptySections();
   sections.lightLeds = lightLeds;
+  const sensorDevices: Record<string, SensorDeviceRef> = {};
 
   for (const entry of entries) {
     const id = entry.entity_id;
@@ -338,7 +346,10 @@ export function classifyArea(hass: ClassifierHass, areaId: string): AreaSections
     }
 
     if (domain === "sensor") {
-      if (!suppressed) sections.sensors.push(id);
+      if (!suppressed) {
+        sections.sensors.push(id);
+        recordSensorDevice(entry, devices, sensorDevices);
+      }
       continue;
     }
 
@@ -358,6 +369,7 @@ export function classifyArea(hass: ClassifierHass, areaId: string): AreaSections
         continue;
       }
       sections.sensors.push(id);
+      recordSensorDevice(entry, devices, sensorDevices);
     }
   }
 
@@ -382,6 +394,7 @@ export function classifyArea(hass: ClassifierHass, areaId: string): AreaSections
   sections.scripts = sortIds(sections.scripts, states);
   sections.occupancy.sort((a, b) => compareIds(a.entityId, b.entityId, states));
   sections.satellites.sort((a, b) => compareIds(a.entityId, b.entityId, states));
+  if (Object.keys(sensorDevices).length > 0) sections.sensorDevices = sensorDevices;
   return sections;
 }
 
@@ -393,6 +406,12 @@ export function membershipKey(areaId: string, name: string, icon: string, sectio
     .map((item) => `${item.entityId}=${item.ledEntityId ?? ""}=${item.alarmEntityId ?? ""}=${item.deviceId ?? ""}`)
     .join(",");
   const leds = sections.lights.map((id) => `${id}=${sections.lightLeds[id] ?? ""}`).join(",");
+  const sensorDevs = sections.sensors
+    .map((id) => {
+      const dev = sections.sensorDevices?.[id];
+      return dev ? `${id}=${dev.id}:${dev.name}` : id;
+    })
+    .join(",");
   return [
     areaId,
     name,
@@ -409,7 +428,7 @@ export function membershipKey(areaId: string, name: string, icon: string, sectio
     sections.helpers.join(","),
     sections.selects.join(","),
     sections.automations.join(","),
-    sections.sensors.join(","),
+    sensorDevs,
     sections.locks.join(","),
     sections.vacuums.join(","),
     sections.buttons.join(","),
@@ -736,6 +755,18 @@ function isAlarmRinging(entityId: string, state: EntityState | undefined): boole
   if (entityId.includes("alarm_ringing")) return true;
   const name = friendlyName(state);
   return Boolean(name && /alarm[\s_-]*ringing/i.test(name));
+}
+
+function recordSensorDevice(
+  entry: RegistryEntry,
+  devices: Record<string, DeviceEntry>,
+  target: Record<string, SensorDeviceRef>,
+): void {
+  if (!entry.device_id) return;
+  const device = devices[entry.device_id];
+  const name = (device?.name_by_user || device?.name || "").trim();
+  if (!name) return;
+  target[entry.entity_id] = { id: entry.device_id, name };
 }
 
 function sortIds(ids: string[], states: Record<string, EntityState>): string[] {

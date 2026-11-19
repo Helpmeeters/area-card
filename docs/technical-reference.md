@@ -111,7 +111,7 @@ Each popup section heading uses its section icon to the left of the title.
   - When the installed Kiosk Satellite Card is loaded, a satellite with a device renders as `custom:kiosk-satellite-card` with `device` set to the satellite device (the old `kiosk-redisplay` name and locally served builds are left unused).
   - `assist_satellite.<name>_assist_satellite` pairs with `media_player.<name>` (even if the player has no area). That player appears under **Media players** when Kiosk Satellite Card is not loaded or the satellite has no device. When Kiosk Satellite Card is loaded and showing Now Playing, the paired player is omitted from **Media players** (Now Playing remains shown while idle, off, unknown, or unavailable).
 - **Cameras**: each camera renders as a `picture-entity` card with `camera_view: auto`, showing its picture rather than only its name; tapping opens more-info.
-- **Other Sensors, Locks, Vacuums**: follow Satellites in that order. An Other Sensors row is an entity card (non-climate `sensor.*` and non-opening/occupancy `binary_sensor.*` entities). Lock and vacuum rows are full width.
+- **Other Sensors, Locks, Vacuums**: follow Satellites in that order. An Other Sensors row is an entity card (non-climate `sensor.*` and non-opening/occupancy `binary_sensor.*` entities), grouped by device under a device subheading when assigned to a named device. Lock and vacuum rows are full width.
 - **Buttons, Scenes, Scripts**: follow Vacuums, before Helpers. Tapping a button or input button presses it (holding opens more-info). Tapping a scene or script turns it on.
 - **Helpers & Automations**:
   - Automations assigned to the area, and automations whose name contains the room name, are listed under **Automations**.

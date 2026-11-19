@@ -2,6 +2,7 @@ interface SectionTitleConfig {
   title?: string;
   icon?: string;
   color?: string;
+  variant?: "section" | "group";
 }
 
 /** Popup section heading: the section icon, then the title in Mushroom's title type. */
@@ -34,12 +35,13 @@ class AreaCardSectionTitle extends HTMLElement {
   private render(): void {
     const config = this.config;
     if (!config) return;
+    const isGroup = config.variant === "group";
     const row = document.createElement("div");
     row.style.cssText = [
       "display:flex",
       "align-items:center",
       "gap:8px",
-      "padding:var(--mush-title-padding, 24px 12px 8px)",
+      isGroup ? "padding:12px 12px 4px" : "padding:var(--mush-title-padding, 24px 12px 8px)",
       "background:none",
     ].join(";");
 
@@ -48,22 +50,30 @@ class AreaCardSectionTitle extends HTMLElement {
       iconEl.setAttribute("icon", config.icon);
       iconEl.style.cssText = [
         `color:${config.color || "var(--primary-text-color)"}`,
-        "--mdc-icon-size:var(--mush-title-font-size, 24px)",
+        isGroup ? "--mdc-icon-size:16px" : "--mdc-icon-size:var(--mush-title-font-size, 24px)",
         "flex-shrink:0",
       ].join(";");
       row.append(iconEl);
     }
 
-    const titleEl = document.createElement("h1");
+    const titleEl = document.createElement(isGroup ? "h2" : "h1");
     titleEl.textContent = config.title ?? "";
-    titleEl.style.cssText = [
-      "margin:0",
-      "font-size:var(--mush-title-font-size, 24px)",
-      "font-weight:var(--mush-title-font-weight, normal)",
-      "line-height:var(--mush-title-line-height, 32px)",
-      "letter-spacing:var(--mush-title-letter-spacing, -0.288px)",
-      "color:var(--mush-title-color, var(--primary-text-color))",
-    ].join(";");
+    titleEl.style.cssText = isGroup
+      ? [
+          "margin:0",
+          "font-size:14px",
+          "font-weight:500",
+          "line-height:20px",
+          "color:var(--secondary-text-color)",
+        ].join(";")
+      : [
+          "margin:0",
+          "font-size:var(--mush-title-font-size, 24px)",
+          "font-weight:var(--mush-title-font-weight, normal)",
+          "line-height:var(--mush-title-line-height, 32px)",
+          "letter-spacing:var(--mush-title-letter-spacing, -0.288px)",
+          "color:var(--mush-title-color, var(--primary-text-color))",
+        ].join(";");
     row.append(titleEl);
     this.replaceChildren(row);
   }

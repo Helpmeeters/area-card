@@ -333,7 +333,7 @@ export function withoutSections(sections: AreaSections, hide: readonly RollupId[
       case "satellites": result.satellites = []; break;
       case "helpers": result.helpers = []; result.selects = []; break;
       case "automations": result.automations = []; break;
-      case "sensors": result.sensors = []; break;
+      case "sensors": result.sensors = []; result.sensorDevices = undefined; break;
       case "locks": result.locks = []; break;
       case "vacuums": result.vacuums = []; break;
       case "buttons": result.buttons = []; break;
