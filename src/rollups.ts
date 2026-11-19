@@ -44,6 +44,8 @@ export interface SectionRollup {
   off?: number;
   /** Automations that will never trigger because their devices are unavailable. */
   disabled?: number;
+  /** Present on the dot row even when there are no on/off entities for a status chip. */
+  dotOnly?: boolean;
   word: "On" | "Open" | "Unlocked" | "Cleaning";
 }
 
@@ -211,7 +213,12 @@ export function sectionRollups(
     off: automations.off,
     disabled: automations.disabled,
   });
-  add("sensors", countActive(sections.sensors, states, isOn), sections.sensors.length);
+  const sensors = sections.sensors.filter(isOnOffEntity);
+  if (sensors.length > 0) {
+    add("sensors", countActive(sensors, states, isOn), sensors.length);
+  } else if (sections.sensors.length > 0) {
+    rollups.push({ id: "sensors", ...META.sensors, active: 0, total: 0, dotOnly: true });
+  }
   add("locks", countActive(sections.locks, states, isLockActive), sections.locks.length);
   add("vacuums", countActive(sections.vacuums, states, isVacuumActive), sections.vacuums.length);
   add("buttons", countActive(sections.buttons, states, isOn), sections.buttons.length);
@@ -244,6 +251,7 @@ export function iconInk(color: string): string {
 }
 
 export function rollupLabel(rollup: SectionRollup): string {
+  if (rollup.dotOnly) return rollup.title;
   if (rollup.id === "automations") {
     const disabled = rollup.disabled ?? 0;
     const off = rollup.off ?? Math.max(0, rollup.total - rollup.active - disabled);
@@ -373,6 +381,7 @@ export function floorDotRow(
       }
       prev.active += rollup.active;
       prev.total += rollup.total;
+      if (!rollup.dotOnly) prev.dotOnly = false;
       if (rollup.off != null || prev.off != null) prev.off = (prev.off ?? 0) + (rollup.off ?? 0);
       if (rollup.disabled != null || prev.disabled != null) {
         prev.disabled = (prev.disabled ?? 0) + (rollup.disabled ?? 0);

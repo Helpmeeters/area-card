@@ -337,6 +337,11 @@ export function classifyArea(hass: ClassifierHass, areaId: string): AreaSections
       continue;
     }
 
+    if (domain === "sensor") {
+      if (!suppressed) sections.sensors.push(id);
+      continue;
+    }
+
     if (domain === "binary_sensor") {
       if (suppressed) continue;
       if (dc && OPENING_CLASSES.has(dc)) {

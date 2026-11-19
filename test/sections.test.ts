@@ -1112,7 +1112,7 @@ describe("device sections", () => {
     ]);
     assert.equal(result.climate.includes("sensor.chair_pressure"), false);
     assert.equal(result.sensors.includes("sensor.chair_pressure"), false);
-    assert.equal(listedIds(result).includes("sensor.power"), false);
+    assert.deepEqual(result.sensors, ["sensor.power"]);
     assert.equal(listedIds(result).includes("sensor.lux_diag"), false);
   });
 
@@ -1457,6 +1457,96 @@ describe("device sections", () => {
     assert.equal(JSON.stringify(titles).includes("Buttons"), false);
     assert.equal(JSON.stringify(titles).includes("Scenes"), false);
     assert.equal(JSON.stringify(titles).includes("Scripts"), false);
+  });
+
+  it("files non-climate sensor.* entities in Other Sensors while keeping template, diagnostic, and satellite sensors separate", () => {
+    const result = classifyArea(
+      hass({
+        devices: [{ id: "kiosk", area_id: "laundry", manufacturer: "Kiosk Satellite" }],
+        entities: [
+          { entity_id: "sensor.dryer_status", area_id: "laundry" },
+          { entity_id: "sensor.dryer_power", area_id: "laundry" },
+          { entity_id: "sensor.dryer_diag", area_id: "laundry", entity_category: "diagnostic" },
+          { entity_id: "sensor.dryer_config", area_id: "laundry", entity_category: "config" },
+          { entity_id: "sensor.template_countdown", area_id: "laundry", platform: "template" },
+          { entity_id: "sensor.kiosk_uptime", device_id: "kiosk" },
+          { entity_id: "assist_satellite.kiosk", device_id: "kiosk" },
+        ],
+        states: {
+          "sensor.dryer_status": state("sensor.dryer_status", "drying", { friendly_name: "Dryer Status" }),
+          "sensor.dryer_power": state("sensor.dryer_power", "2400", { device_class: "power", friendly_name: "Dryer Power" }),
+          "sensor.dryer_diag": state("sensor.dryer_diag", "ok"),
+          "sensor.dryer_config": state("sensor.dryer_config", "1"),
+          "sensor.template_countdown": state("sensor.template_countdown", "12"),
+          "sensor.kiosk_uptime": state("sensor.kiosk_uptime", "100"),
+          "assist_satellite.kiosk": state("assist_satellite.kiosk", "idle"),
+        },
+      }),
+      "laundry",
+    );
+    assert.deepEqual(result.sensors, ["sensor.dryer_power", "sensor.dryer_status"]);
+    assert.deepEqual(result.helpers, ["sensor.template_countdown"]);
+    assert.equal(listedIds(result).includes("sensor.dryer_diag"), false);
+    assert.equal(listedIds(result).includes("sensor.dryer_config"), false);
+    assert.equal(listedIds(result).includes("sensor.kiosk_uptime"), false);
+  });
+
+  it("shows a hollow sensors dot without a 0/0 status chip when Other Sensors has only non-binary sensors", () => {
+    const sections = {
+      ...emptySections(),
+      sensors: ["sensor.dryer_power", "sensor.dryer_status"],
+    };
+    const states = {
+      "sensor.dryer_power": state("sensor.dryer_power", "2400", { friendly_name: "Dryer Power" }),
+      "sensor.dryer_status": state("sensor.dryer_status", "drying", { friendly_name: "Dryer Status" }),
+    };
+
+    const slots = collapsedDotSlots([]);
+    const button = buildButtonConfig({
+      areaId: "laundry",
+      name: "Laundry",
+      icon: "mdi:tumble-dryer",
+      sections,
+      states,
+      dotSlots: slots,
+    });
+    const dots = button.sub_button as Array<{ css_class: string }>;
+    assert.equal(dots[slots.indexOf("sensors")]?.css_class, "area-dot-sensors-off");
+
+    const cards = buildPopupCards(sections, states, "Laundry");
+    assert.equal(cards.some((card) => card.title === "Status"), false);
+    assert.deepEqual(
+      cards.filter((card) => card.title).map((card) => card.title),
+      ["Other Sensors"],
+    );
+    assert.deepEqual(
+      cards.filter((card) => card.entity).map((card) => card.entity),
+      ["sensor.dryer_power", "sensor.dryer_status"],
+    );
+
+    const floorOnlyNonBinary = floorDotRow(slots, [sectionRollups(sections, states)]);
+    const sensorDot = floorOnlyNonBinary.find((dot) => dot.id === "sensors");
+    assert.equal(sensorDot?.state, "off");
+    assert.equal(sensorDot?.label, "Other Sensors");
+
+    const withBinary = {
+      ...emptySections(),
+      sensors: ["binary_sensor.leak", "sensor.dryer_power"],
+    };
+    const withBinaryStates = {
+      "binary_sensor.leak": state("binary_sensor.leak", "on"),
+      ...states,
+    };
+    const mixedRollups = sectionRollups(withBinary, withBinaryStates);
+    assert.deepEqual(
+      mixedRollups.map((rollup) => rollupLabel(rollup)),
+      ["Other Sensors 1/1 On"],
+    );
+
+    const floorMerged = floorDotRow(slots, [sectionRollups(sections, states), mixedRollups]);
+    const mergedDot = floorMerged.find((dot) => dot.id === "sensors");
+    assert.equal(mergedDot?.state, "on");
+    assert.equal(mergedDot?.label, "Other Sensors 1/1 On");
   });
 });
 

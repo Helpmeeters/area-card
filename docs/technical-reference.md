@@ -67,7 +67,7 @@ Each dot shows that section's icon:
 Active criteria per dotted section:
 
 - **Cameras** (`cameras`): filled when a camera is `recording` or `streaming`; hollow ring when present but idle; invisible when the area has no camera.
-- **Other Sensors** (`sensors`): filled when any binary sensor in that section is `on`; hollow ring when present and all `off`; invisible when absent.
+- **Other Sensors** (`sensors`): filled when any binary sensor in that section is `on`; hollow ring when present and no binary sensor is `on`; invisible when absent.
 - **Locks** (`locks`): filled when any lock is not `locked`, `unavailable`, or `unknown`.
 - **Vacuums** (`vacuums`): filled when a vacuum is `cleaning`, `returning`, or `on`.
 
@@ -111,7 +111,7 @@ Each popup section heading uses its section icon to the left of the title.
   - When the installed Kiosk Satellite Card is loaded, a satellite with a device renders as `custom:kiosk-satellite-card` with `device` set to the satellite device (the old `kiosk-redisplay` name and locally served builds are left unused).
   - `assist_satellite.<name>_assist_satellite` pairs with `media_player.<name>` (even if the player has no area). That player appears under **Media players** when Kiosk Satellite Card is not loaded or the satellite has no device. When Kiosk Satellite Card is loaded and showing Now Playing, the paired player is omitted from **Media players** (Now Playing remains shown while idle, off, unknown, or unavailable).
 - **Cameras**: each camera renders as a `picture-entity` card with `camera_view: auto`, showing its picture rather than only its name; tapping opens more-info.
-- **Other Sensors, Locks, Vacuums**: follow Satellites in that order. An Other Sensors row is an entity card. Lock and vacuum rows are full width.
+- **Other Sensors, Locks, Vacuums**: follow Satellites in that order. An Other Sensors row is an entity card (non-climate `sensor.*` and non-opening/occupancy `binary_sensor.*` entities). Lock and vacuum rows are full width.
 - **Buttons, Scenes, Scripts**: follow Vacuums, before Helpers. Tapping a button or input button presses it (holding opens more-info). Tapping a scene or script turns it on.
 - **Helpers & Automations**:
   - Automations assigned to the area, and automations whose name contains the room name, are listed under **Automations**.

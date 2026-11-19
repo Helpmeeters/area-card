@@ -122,7 +122,7 @@ function sectionBody(
 ): Record<string, unknown>[] {
   switch (id) {
     case "status": {
-      const rollups = sectionRollups(sections, states, disabledAutomations);
+      const rollups = sectionRollups(sections, states, disabledAutomations).filter((rollup) => !rollup.dotOnly);
       if (rollups.length === 0) return [];
       return [
         {
