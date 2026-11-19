@@ -7,6 +7,7 @@ import {
   placeAutomationSubtitle,
 } from "../src/automation-subtitle";
 import { buildButtonConfig } from "../src/button-config";
+import { computeCameraDetectionBadges } from "../src/camera-detections";
 import { climateSubtitle } from "../src/climate-subtitle";
 import { floorExpandedKey, floorRuntimeConfig, parseFloorExpanded } from "../src/floor-state";
 import { areasOnFloor, floorDisplay } from "../src/floors";
@@ -3632,5 +3633,128 @@ describe("floor expanded storage", () => {
     assert.equal(parseFloorExpanded(""), true);
     assert.equal(parseFloorExpanded("yes"), true);
     assert.equal(parseFloorExpanded(null, false), false);
+  });
+});
+
+describe("Frigate camera detections", () => {
+  it("absorbs count sensors and non-person occupancy into the camera while keeping person_occupancy for presence", () => {
+    const fixture = hass({
+      devices: [{ id: "cam-dev", area_id: "office", name: "Mac Webcam" }],
+      entities: [
+        { entity_id: "camera.mac_webcam", device_id: "cam-dev", platform: "frigate" },
+        { entity_id: "binary_sensor.mac_webcam_person_occupancy", device_id: "cam-dev", device_class: "occupancy" },
+        { entity_id: "binary_sensor.mac_webcam_dog_occupancy", device_id: "cam-dev", device_class: "occupancy" },
+        { entity_id: "binary_sensor.mac_webcam_cat_occupancy", device_id: "cam-dev", device_class: "occupancy" },
+        { entity_id: "binary_sensor.mac_webcam_all_occupancy", device_id: "cam-dev", device_class: "occupancy" },
+        { entity_id: "binary_sensor.mac_webcam_motion", device_id: "cam-dev", device_class: "motion" },
+        { entity_id: "sensor.mac_webcam_all_count", device_id: "cam-dev" },
+        { entity_id: "sensor.mac_webcam_person_count", device_id: "cam-dev" },
+        { entity_id: "sensor.mac_webcam_dog_count", device_id: "cam-dev" },
+        { entity_id: "sensor.mac_webcam_cat_count", device_id: "cam-dev" },
+        { entity_id: "sensor.mac_webcam_person_active_count", device_id: "cam-dev" },
+        { entity_id: "sensor.mac_webcam_all_active_count", device_id: "cam-dev" },
+        { entity_id: "sensor.mac_webcam_review_status", device_id: "cam-dev" },
+      ],
+      states: {
+        "camera.mac_webcam": state("camera.mac_webcam", "recording", { friendly_name: "Mac Webcam" }),
+        "binary_sensor.mac_webcam_person_occupancy": state("binary_sensor.mac_webcam_person_occupancy", "off", { device_class: "occupancy", friendly_name: "Person occupancy" }),
+        "binary_sensor.mac_webcam_dog_occupancy": state("binary_sensor.mac_webcam_dog_occupancy", "on", { device_class: "occupancy", friendly_name: "Dog occupancy" }),
+        "binary_sensor.mac_webcam_cat_occupancy": state("binary_sensor.mac_webcam_cat_occupancy", "off", { device_class: "occupancy", friendly_name: "Cat occupancy" }),
+        "binary_sensor.mac_webcam_all_occupancy": state("binary_sensor.mac_webcam_all_occupancy", "on", { device_class: "occupancy", friendly_name: "All occupancy" }),
+        "binary_sensor.mac_webcam_motion": state("binary_sensor.mac_webcam_motion", "on", { device_class: "motion", friendly_name: "Motion" }),
+        "sensor.mac_webcam_all_count": state("sensor.mac_webcam_all_count", "1"),
+        "sensor.mac_webcam_person_count": state("sensor.mac_webcam_person_count", "0"),
+        "sensor.mac_webcam_dog_count": state("sensor.mac_webcam_dog_count", "1"),
+        "sensor.mac_webcam_cat_count": state("sensor.mac_webcam_cat_count", "0"),
+        "sensor.mac_webcam_person_active_count": state("sensor.mac_webcam_person_active_count", "0"),
+        "sensor.mac_webcam_all_active_count": state("sensor.mac_webcam_all_active_count", "0"),
+        "sensor.mac_webcam_review_status": state("sensor.mac_webcam_review_status", "NONE", { friendly_name: "Review Status" }),
+      },
+    });
+
+    const sections = classifyArea(fixture, "office");
+    assert.deepEqual(sections.cameras, ["camera.mac_webcam"]);
+    assert.deepEqual(sections.occupancy.map((o) => o.entityId), ["binary_sensor.mac_webcam_person_occupancy"]);
+    assert.deepEqual(sections.sensors, []);
+
+    const det = sections.cameraDetections?.["camera.mac_webcam"];
+    assert.ok(det);
+    assert.equal(det.totalCountEntityId, "sensor.mac_webcam_all_count");
+    assert.equal(det.allOccupancyEntityId, "binary_sensor.mac_webcam_all_occupancy");
+    assert.equal(det.motionEntityId, "binary_sensor.mac_webcam_motion");
+    assert.equal(det.reviewStatusEntityId, "sensor.mac_webcam_review_status");
+    assert.deepEqual(
+      det.classes.map((c) => c.name),
+      ["person", "cat", "dog"],
+    );
+
+    const cards = buildPopupCards(sections, fixture.states ?? {}, "Office");
+    const camRow = cards.find((c) => c.type === "custom:area-card-camera-row");
+    assert.ok(camRow);
+    assert.equal((camRow.card as Record<string, unknown>).type, "picture-entity");
+    assert.equal((camRow.card as Record<string, unknown>).entity, "camera.mac_webcam");
+  });
+
+  it("computes total circle even at 0 and shows only currently present classes with xN counts", () => {
+    const det = {
+      totalCountEntityId: "sensor.mac_webcam_all_count",
+      allOccupancyEntityId: "binary_sensor.mac_webcam_all_occupancy",
+      reviewStatusEntityId: "sensor.mac_webcam_review_status",
+      classes: [
+        { name: "person", occupancyEntityId: "binary_sensor.mac_webcam_person_occupancy", countEntityId: "sensor.mac_webcam_person_count" },
+        { name: "dog", occupancyEntityId: "binary_sensor.mac_webcam_dog_occupancy", countEntityId: "sensor.mac_webcam_dog_count" },
+        { name: "cat", occupancyEntityId: "binary_sensor.mac_webcam_cat_occupancy", countEntityId: "sensor.mac_webcam_cat_count" },
+      ],
+    };
+
+    const idle = computeCameraDetectionBadges(det, {
+      "sensor.mac_webcam_all_count": state("sensor.mac_webcam_all_count", "0"),
+      "binary_sensor.mac_webcam_all_occupancy": state("binary_sensor.mac_webcam_all_occupancy", "off"),
+      "sensor.mac_webcam_review_status": state("sensor.mac_webcam_review_status", "NONE", { icon: "mdi:eye-check" }),
+      "binary_sensor.mac_webcam_person_occupancy": state("binary_sensor.mac_webcam_person_occupancy", "off"),
+      "sensor.mac_webcam_person_count": state("sensor.mac_webcam_person_count", "0"),
+      "binary_sensor.mac_webcam_dog_occupancy": state("binary_sensor.mac_webcam_dog_occupancy", "off"),
+      "sensor.mac_webcam_dog_count": state("sensor.mac_webcam_dog_count", "0"),
+      "binary_sensor.mac_webcam_cat_occupancy": state("binary_sensor.mac_webcam_cat_occupancy", "off"),
+      "sensor.mac_webcam_cat_count": state("sensor.mac_webcam_cat_count", "0"),
+    });
+    assert.equal(idle.total, 0);
+    assert.equal(idle.totalText, "0");
+    assert.equal(idle.active, false);
+    assert.deepEqual(idle.classes, []);
+    assert.deepEqual(idle.reviewStatus, {
+      active: false,
+      icon: "mdi:eye-check",
+      text: null,
+      title: "Review status: NONE",
+    });
+
+    const active = computeCameraDetectionBadges(det, {
+      "sensor.mac_webcam_all_count": state("sensor.mac_webcam_all_count", "3"),
+      "binary_sensor.mac_webcam_all_occupancy": state("binary_sensor.mac_webcam_all_occupancy", "on"),
+      "sensor.mac_webcam_review_status": state("sensor.mac_webcam_review_status", "ALERT", { icon: "mdi:eye-check" }),
+      "binary_sensor.mac_webcam_person_occupancy": state("binary_sensor.mac_webcam_person_occupancy", "on"),
+      "sensor.mac_webcam_person_count": state("sensor.mac_webcam_person_count", "2"),
+      "binary_sensor.mac_webcam_dog_occupancy": state("binary_sensor.mac_webcam_dog_occupancy", "on"),
+      "sensor.mac_webcam_dog_count": state("sensor.mac_webcam_dog_count", "1"),
+      "binary_sensor.mac_webcam_cat_occupancy": state("binary_sensor.mac_webcam_cat_occupancy", "off"),
+      "sensor.mac_webcam_cat_count": state("sensor.mac_webcam_cat_count", "0"),
+    });
+    assert.equal(active.total, 3);
+    assert.equal(active.totalText, "3");
+    assert.equal(active.active, true);
+    assert.deepEqual(
+      active.classes.map((c) => ({ name: c.name, icon: c.icon, countText: c.countText })),
+      [
+        { name: "person", icon: "mdi:account", countText: "×2" },
+        { name: "dog", icon: "mdi:dog", countText: null },
+      ],
+    );
+    assert.deepEqual(active.reviewStatus, {
+      active: true,
+      icon: "mdi:eye-check",
+      text: "Alert",
+      title: "Review status: Alert",
+    });
   });
 });

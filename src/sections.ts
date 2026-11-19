@@ -82,12 +82,27 @@ export interface SensorDeviceRef {
   name: string;
 }
 
+export interface CameraDetectionClass {
+  name: string;
+  occupancyEntityId?: string;
+  countEntityId?: string;
+}
+
+export interface CameraDetection {
+  totalCountEntityId?: string;
+  allOccupancyEntityId?: string;
+  motionEntityId?: string;
+  reviewStatusEntityId?: string;
+  classes: CameraDetectionClass[];
+}
+
 export interface AreaSections {
   climate: string[];
   lights: string[];
   lightLeds: Record<string, string>;
   mediaPlayers: string[];
   cameras: string[];
+  cameraDetections?: Record<string, CameraDetection>;
   switches: string[];
   occupancy: OccupancyItem[];
   openings: string[];
@@ -232,8 +247,10 @@ export function classifyArea(hass: ClassifierHass, areaId: string): AreaSections
 
   const renderedLights = entries.filter((entry) => isRenderedLight(entry, devices, satelliteDevices, states));
   const lightLeds = assignLightLeds(renderedLights, entries, satelliteDevices);
+  const { cameraDetections, absorbedOccupancy, absorbedSensors } = collectCameraDetections(entries);
   const sections = emptySections();
   sections.lightLeds = lightLeds;
+  if (Object.keys(cameraDetections).length > 0) sections.cameraDetections = cameraDetections;
   const sensorDevices: Record<string, SensorDeviceRef> = {};
 
   for (const entry of entries) {
@@ -347,7 +364,7 @@ export function classifyArea(hass: ClassifierHass, areaId: string): AreaSections
     }
 
     if (domain === "sensor") {
-      if (!suppressed) {
+      if (!suppressed && !absorbedSensors.has(id)) {
         sections.sensors.push(id);
         recordSensorDevice(entry, devices, sensorDevices);
       }
@@ -355,7 +372,7 @@ export function classifyArea(hass: ClassifierHass, areaId: string): AreaSections
     }
 
     if (domain === "binary_sensor") {
-      if (suppressed) continue;
+      if (suppressed || absorbedOccupancy.has(id)) continue;
       if (dc && OPENING_CLASSES.has(dc)) {
         sections.openings.push(id);
         continue;
@@ -413,6 +430,16 @@ export function membershipKey(areaId: string, name: string, icon: string, sectio
       return dev ? `${id}=${dev.id}:${dev.name}` : id;
     })
     .join(",");
+  const camDetections = Object.keys(sections.cameraDetections ?? {})
+    .sort()
+    .map((camId) => {
+      const det = sections.cameraDetections![camId];
+      const cls = det.classes
+        .map((c) => `${c.name}:${c.occupancyEntityId ?? ""}:${c.countEntityId ?? ""}`)
+        .join(",");
+      return `${camId}=${det.totalCountEntityId ?? ""}=${det.allOccupancyEntityId ?? ""}=${det.motionEntityId ?? ""}=${det.reviewStatusEntityId ?? ""}=${cls}`;
+    })
+    .join(";");
   return [
     areaId,
     name,
@@ -422,6 +449,7 @@ export function membershipKey(areaId: string, name: string, icon: string, sectio
     leds,
     sections.mediaPlayers.join(","),
     sections.cameras.join(","),
+    camDetections,
     sections.switches.join(","),
     occupancy,
     sections.openings.join(","),
@@ -778,4 +806,100 @@ function compareIds(a: string, b: string, states: Record<string, EntityState>): 
   const an = friendlyName(states[a]) ?? a;
   const bn = friendlyName(states[b]) ?? b;
   return an.localeCompare(bn) || a.localeCompare(b);
+}
+
+function collectCameraDetections(entries: readonly RegistryEntry[]): {
+  cameraDetections: Record<string, CameraDetection>;
+  absorbedOccupancy: Set<string>;
+  absorbedSensors: Set<string>;
+} {
+  const cameraDetections: Record<string, CameraDetection> = {};
+  const absorbedOccupancy = new Set<string>();
+  const absorbedSensors = new Set<string>();
+
+  const cameras = entries.filter((entry) => entry.entity_id.startsWith("camera.") && !isDiagnosticOrConfig(entry));
+  for (const cam of cameras) {
+    const camId = cam.entity_id;
+    const camStem = camId.slice("camera.".length);
+    const prefix = `${camStem}_`;
+    const classMap = new Map<string, CameraDetectionClass>();
+    let totalCountEntityId: string | undefined;
+    let allOccupancyEntityId: string | undefined;
+    let motionEntityId: string | undefined;
+    let reviewStatusEntityId: string | undefined;
+
+    const getClass = (name: string): CameraDetectionClass => {
+      let item = classMap.get(name);
+      if (!item) {
+        item = { name };
+        classMap.set(name, item);
+      }
+      return item;
+    };
+
+    for (const entry of entries) {
+      const id = entry.entity_id;
+      if (id === camId || isDiagnosticOrConfig(entry)) continue;
+      const dot = id.indexOf(".");
+      if (dot < 1) continue;
+      const domain = id.slice(0, dot);
+      const objectId = id.slice(dot + 1);
+      if (cam.device_id) {
+        if (entry.device_id !== cam.device_id) continue;
+      } else if (!objectId.startsWith(prefix)) {
+        continue;
+      }
+
+      const suffix = objectId.startsWith(prefix) ? objectId.slice(prefix.length) : objectId;
+
+      if (domain === "binary_sensor") {
+        if (suffix === "all_occupancy") {
+          allOccupancyEntityId = id;
+          absorbedOccupancy.add(id);
+        } else if (suffix === "motion") {
+          motionEntityId = id;
+          absorbedOccupancy.add(id);
+        } else if (suffix.endsWith("_occupancy")) {
+          const cls = suffix.slice(0, -"_occupancy".length);
+          if (cls) {
+            getClass(cls).occupancyEntityId = id;
+            if (cls !== "person") absorbedOccupancy.add(id);
+          }
+        }
+      } else if (domain === "sensor") {
+        if (suffix === "all_count") {
+          totalCountEntityId = id;
+          absorbedSensors.add(id);
+        } else if (suffix === "review_status") {
+          reviewStatusEntityId = id;
+          absorbedSensors.add(id);
+        } else if (suffix.endsWith("_active_count")) {
+          absorbedSensors.add(id);
+        } else if (suffix.endsWith("_count")) {
+          const cls = suffix.slice(0, -"_count".length);
+          if (cls) {
+            getClass(cls).countEntityId = id;
+            absorbedSensors.add(id);
+          }
+        }
+      }
+    }
+
+    if (totalCountEntityId || allOccupancyEntityId || motionEntityId || reviewStatusEntityId || classMap.size > 0) {
+      const classes = [...classMap.values()].sort((a, b) => {
+        if (a.name === "person" && b.name !== "person") return -1;
+        if (b.name === "person" && a.name !== "person") return 1;
+        return a.name.localeCompare(b.name);
+      });
+      cameraDetections[camId] = {
+        ...(totalCountEntityId ? { totalCountEntityId } : {}),
+        ...(allOccupancyEntityId ? { allOccupancyEntityId } : {}),
+        ...(motionEntityId ? { motionEntityId } : {}),
+        ...(reviewStatusEntityId ? { reviewStatusEntityId } : {}),
+        classes,
+      };
+    }
+  }
+
+  return { cameraDetections, absorbedOccupancy, absorbedSensors };
 }

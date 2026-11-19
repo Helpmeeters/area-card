@@ -32,6 +32,7 @@ import { ensureDeps } from "./ensure-deps";
 import { syncCardThemeFallback } from "./theme";
 import "./floor-card";
 import "./floors-card";
+import "./camera-row";
 import "./light-row";
 import "./section-title";
 import { entityScopeMap, setScopeEntityOrder } from "./entity-order";
@@ -163,9 +164,18 @@ function pinnedInnerHosts(card: HTMLElement): HTMLElement[] {
     for (const child of root.children) {
       if (!(child instanceof HTMLElement) || !child.localName.includes("-")) continue;
       hosts.push(child);
-      if (child.localName !== "area-card-light-row") continue;
-      for (const nested of child.children) {
-        if (nested instanceof HTMLElement && nested.localName.startsWith("area-card-mushroom")) hosts.push(nested);
+      if (child.localName === "area-card-light-row") {
+        for (const nested of child.children) {
+          if (nested instanceof HTMLElement && nested.localName.startsWith("area-card-mushroom")) hosts.push(nested);
+        }
+      } else if (child.localName === "area-card-camera-row") {
+        for (const nested of child.children) {
+          if (nested instanceof HTMLElement && nested.localName === "hui-card") {
+            for (const inner of nested.children) {
+              if (inner instanceof HTMLElement && inner.localName.includes("-")) hosts.push(inner);
+            }
+          }
+        }
       }
     }
   }
@@ -173,7 +183,9 @@ function pinnedInnerHosts(card: HTMLElement): HTMLElement[] {
 }
 
 function pinnedChromeReady(card: HTMLElement): boolean {
-  const hosts = pinnedInnerHosts(card).filter((host) => host.localName !== "area-card-light-row");
+  const hosts = pinnedInnerHosts(card).filter(
+    (host) => host.localName !== "area-card-light-row" && host.localName !== "area-card-camera-row",
+  );
   if (hosts.length === 0) return false;
   return hosts.every((host) => host.shadowRoot?.querySelector("ha-card"));
 }
@@ -222,7 +234,7 @@ function applyPinnedSideBySide(card: HTMLElement, follow = true): void {
 
   let actionsVisible = false;
   for (const host of pinnedInnerHosts(card)) {
-    if (host.localName === "area-card-light-row") continue;
+    if (host.localName === "area-card-light-row" || host.localName === "area-card-camera-row") continue;
     const root = host.shadowRoot;
     if (!root) continue;
     if (root.querySelector(".actions")) actionsVisible = true;
@@ -253,7 +265,9 @@ function applyPinnedSideBySide(card: HTMLElement, follow = true): void {
 
 function pinnedSplitApplied(card: HTMLElement): boolean {
   if (card.dataset.pinSplit !== "1") return true;
-  const hosts = pinnedInnerHosts(card).filter((host) => host.localName !== "area-card-light-row");
+  const hosts = pinnedInnerHosts(card).filter(
+    (host) => host.localName !== "area-card-light-row" && host.localName !== "area-card-camera-row",
+  );
   if (hosts.length === 0) return false;
   return hosts.some((host) => {
     const layout = mushroomLayout(host);
@@ -382,9 +396,14 @@ class AreaCard extends HTMLElement {
    * already on screen the demo overlay. Render assigns that same object again
    * once those elements exist.
    */
+  private needsThemeFallback(): boolean {
+    if (!this.pinnedRowsVisible) return false;
+    return picturePlacement(this.areaPicture, true) === "cluster" || this.cameraVideoCovers();
+  }
+
   private adoptHass(value: ClassifierHass): void {
     this._rawHass = value;
-    syncCardThemeFallback(this, value);
+    syncCardThemeFallback(this, value, this.needsThemeFallback());
     const targets: { hass?: ClassifierHass }[] = [];
     if (this.buttonEl) targets.push(this.buttonEl);
     if (this.popupEl) targets.push(this.popupEl);
@@ -393,7 +412,7 @@ class AreaCard extends HTMLElement {
 
   connectedCallback(): void {
     this.style.display = "block";
-    syncCardThemeFallback(this, this._rawHass);
+    syncCardThemeFallback(this, this._rawHass, this.needsThemeFallback());
     this.addEventListener("hass-more-info", this.stopDemoBackend);
     this.addEventListener("hass-action", this.stopDemoBackend);
     window.addEventListener("resize", this.onResize);
@@ -1375,6 +1394,11 @@ class AreaCard extends HTMLElement {
     const videoCovers = this.cameraVideoCovers();
     const videoPlaying = this.streamState?.phase === "playing";
     const placement = picturePlacement(this.areaPicture, pinnedRowsVisible);
+    syncCardThemeFallback(
+      this,
+      this._rawHass,
+      pinnedRowsVisible && (placement === "cluster" || videoCovers),
+    );
     const clusterTint = pinnedRowsVisible ? this.clusterLightTint() : null;
     const cluster = this.ensurePictureCluster();
     if (cluster && cluster !== this) {

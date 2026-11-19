@@ -1,6 +1,6 @@
 {
   "name": "area-card",
-  "version": "0.1.38",
+  "version": "0.1.39",
   "private": true,
   "type": "module",
   "description": "Helpmeet: Area Card. Lovelace cards for a Home Assistant area, a floor, and every floor.",

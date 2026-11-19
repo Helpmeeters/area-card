@@ -266,6 +266,16 @@ describe("pinEntityId", () => {
     );
   });
 
+  it("returns the inner entity of a camera row", () => {
+    assert.equal(
+      pinEntityId({
+        type: "custom:area-card-camera-row",
+        card: { type: "picture-entity", entity: "camera.mac_webcam" },
+      }),
+      "camera.mac_webcam",
+    );
+  });
+
   it("returns null for a light row without an entity", () => {
     assert.equal(pinEntityId({ type: "custom:area-card-light-row", entity: "light.kitchen" }), null);
     assert.equal(pinEntityId({ type: "custom:area-card-light-row", card: { type: "custom:area-card-mushroom-light-card" } }), null);

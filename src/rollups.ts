@@ -326,7 +326,7 @@ export function withoutSections(sections: AreaSections, hide: readonly RollupId[
       case "climate": result.climate = []; break;
       case "lights": result.lights = []; result.lightLeds = {}; break;
       case "media": result.mediaPlayers = []; break;
-      case "cameras": result.cameras = []; break;
+      case "cameras": result.cameras = []; result.cameraDetections = undefined; break;
       case "switches": result.switches = []; break;
       case "occupancy": result.occupancy = []; break;
       case "openings": result.openings = []; break;

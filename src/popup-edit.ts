@@ -369,9 +369,18 @@ function innerHosts(card: HTMLElement): HTMLElement[] {
     for (const child of root.children) {
       if (!(child instanceof HTMLElement) || !child.localName.includes("-")) continue;
       hosts.push(child);
-      if (child.localName !== "area-card-light-row") continue;
-      for (const nested of child.children) {
-        if (nested instanceof HTMLElement && nested.localName.startsWith("area-card-mushroom")) hosts.push(nested);
+      if (child.localName === "area-card-light-row") {
+        for (const nested of child.children) {
+          if (nested instanceof HTMLElement && nested.localName.startsWith("area-card-mushroom")) hosts.push(nested);
+        }
+      } else if (child.localName === "area-card-camera-row") {
+        for (const nested of child.children) {
+          if (nested instanceof HTMLElement && nested.localName === "hui-card") {
+            for (const inner of nested.children) {
+              if (inner instanceof HTMLElement && inner.localName.includes("-")) hosts.push(inner);
+            }
+          }
+        }
       }
     }
   }
@@ -402,7 +411,7 @@ function stylePreviewCard(card: HTMLElement, edge: PinnedEdge, sideBySide: boole
     host.style.setProperty("margin", "0", "important");
     host.style.setProperty("display", "block", "important");
     host.style.setProperty("width", "100%", "important");
-    if (host.localName === "area-card-light-row") continue;
+    if (host.localName === "area-card-light-row" || host.localName === "area-card-camera-row") continue;
     const root = host.shadowRoot;
     if (!root) continue;
     syncPreviewStyle(
@@ -427,7 +436,9 @@ function stylePreviewCard(card: HTMLElement, edge: PinnedEdge, sideBySide: boole
       syncPreviewStyle(layout.shadowRoot, "area-card-pin-split-rows", sideBySide ? pinnedSideBySideStyles() : null);
     }
   }
-  const ready = hosts.some((h) => h.localName !== "area-card-light-row" && h.shadowRoot?.querySelector("ha-card"));
+  const ready = hosts.some(
+    (h) => h.localName !== "area-card-light-row" && h.localName !== "area-card-camera-row" && h.shadowRoot?.querySelector("ha-card"),
+  );
   if (!ready && tries < 30 && card.isConnected && typeof requestAnimationFrame === "function") {
     requestAnimationFrame(() => stylePreviewCard(card, edge, sideBySide, tries + 1));
   }

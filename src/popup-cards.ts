@@ -31,6 +31,7 @@ interface RowLayout {
   entityOrder?: AreaEntityOrder;
 }
 const LIGHT_ROW = "custom:area-card-light-row";
+const CAMERA_ROW = "custom:area-card-camera-row";
 const SECTION_TITLE = "custom:area-card-section-title";
 const STATUS_HEADING = {
   title: "Status",
@@ -167,7 +168,12 @@ function sectionBody(
         ),
       );
     case "cameras":
-      return sections.cameras.map((entity) => cameraCard(entity, states, roomName));
+      return sections.cameras.map((entity) =>
+        withCameraDetections(
+          cameraCard(entity, states, roomName),
+          sections.cameraDetections?.[entity],
+        ),
+      );
     case "switches":
       return sections.switches.map((entity) =>
         entityCard(entity, states, roomName, rows, {
@@ -327,6 +333,19 @@ function withLedDot(card: Record<string, unknown>, ledEntityId?: string): Record
   return {
     type: LIGHT_ROW,
     led_entity: ledEntityId,
+    card,
+    grid_options: card.grid_options ?? FULL,
+  };
+}
+
+function withCameraDetections(
+  card: Record<string, unknown>,
+  detections?: AreaSections["cameraDetections"] extends Record<string, infer D> | undefined ? D : never,
+): Record<string, unknown> {
+  if (!detections) return card;
+  return {
+    type: CAMERA_ROW,
+    detections,
     card,
     grid_options: card.grid_options ?? FULL,
   };

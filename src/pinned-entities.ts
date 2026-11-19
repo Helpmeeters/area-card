@@ -6,6 +6,7 @@ export const PINNED_KEY_PREFIX = "area-card-pinned:";
 
 const SECTION_TITLE = "custom:area-card-section-title";
 const LIGHT_ROW = "custom:area-card-light-row";
+const CAMERA_ROW = "custom:area-card-camera-row";
 
 export function pinnedKey(areaId: string): string {
   return `${PINNED_KEY_PREFIX}${areaId}`;
@@ -240,7 +241,7 @@ export function pinEntityId(config: Record<string, unknown> | null | undefined):
   const type = config.type;
   if (type === SECTION_TITLE) return null;
   if (typeof type === "string" && type.endsWith("chips-card")) return null;
-  if (type === LIGHT_ROW) {
+  if (type === LIGHT_ROW || type === CAMERA_ROW) {
     const card = config.card;
     if (typeof card !== "object" || card === null) return null;
     return nonEmptyString((card as Record<string, unknown>).entity);
@@ -311,7 +312,7 @@ export function pinnedEdgeRadius(edge: PinnedEdge): string {
 }
 
 function pinnedBody(config: Record<string, unknown>): Record<string, unknown> {
-  if (config.type !== LIGHT_ROW) return config;
+  if (config.type !== LIGHT_ROW && config.type !== CAMERA_ROW) return config;
   const card = config.card;
   if (typeof card !== "object" || card === null || Array.isArray(card)) return config;
   return card as Record<string, unknown>;
