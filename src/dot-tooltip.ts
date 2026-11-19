@@ -279,16 +279,13 @@ export function hideAreaDotTooltip(): void {
 }
 
 /**
- * Cards for a visible collapsed dot: the popup heading and every row in that section.
- * Empty slots have no tooltip. Floor headers keep their own summary text.
+ * Cards for any popup section: the popup heading and every row in that section.
  */
-export function areaDotTooltipCards(
-  className: string,
+export function sectionTooltipCards(
+  id: RollupId,
   source?: DotTooltipSource,
 ): Record<string, unknown>[] | null {
   if (!source) return null;
-  const id = visibleDotRollupId(className);
-  if (!id) return null;
   const cards = sectionPopupCards(
     id,
     source.sections,
@@ -302,6 +299,47 @@ export function areaDotTooltipCards(
     },
   );
   return cards.length > 0 ? cards : null;
+}
+
+/**
+ * Cards for a visible collapsed dot: the popup heading and every row in that section.
+ * Empty slots have no tooltip. Floor headers keep their own summary text.
+ */
+export function areaDotTooltipCards(
+  className: string,
+  source?: DotTooltipSource,
+): Record<string, unknown>[] | null {
+  if (!source) return null;
+  const id = visibleDotRollupId(className);
+  if (!id) return null;
+  return sectionTooltipCards(id, source);
+}
+
+/** Bind the occupancy section tooltip onto the AreaCard presence pill. */
+export function syncPresencePillTooltip(pill: HTMLElement, source?: DotTooltipSource): void {
+  pill.removeAttribute("title");
+  const cards = sectionTooltipCards("occupancy", source);
+  if (!cards || !source?.hass) {
+    tipSources.delete(pill);
+    delete pill.dataset.areaTip;
+    return;
+  }
+  tipSources.set(pill, source);
+  pill.dataset.areaTip = "occupancy";
+  if (pill.dataset.areaTipBound === "1") return;
+  pill.dataset.areaTipBound = "1";
+  const show = () => {
+    const current = tipSources.get(pill);
+    if (!current?.hass) return;
+    const next = sectionTooltipCards("occupancy", current);
+    if (!next) return;
+    showAreaDotTooltip(pill, { cards: next, hass: current.hass });
+  };
+  pill.addEventListener("pointerenter", show);
+  pill.addEventListener("focus", show);
+  pill.addEventListener("pointerleave", dismissAreaDotTooltip);
+  pill.addEventListener("blur", hideAreaDotTooltip);
+  pill.addEventListener("pointerdown", hideAreaDotTooltip);
 }
 
 /** Bind an immediate tooltip on each visible dot. Empty slots are left alone. */

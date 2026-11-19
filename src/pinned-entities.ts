@@ -11,23 +11,33 @@ export function pinnedKey(areaId: string): string {
   return `${PINNED_KEY_PREFIX}${areaId}`;
 }
 
-export type PinMode = "hidden" | "background" | "always" | "when-on";
+export type PinMode = "hidden" | "always" | "when-on";
 
-/** Always pins, while-on pins, and camera background pins. An id is in at most one list. */
+/** Always pins and while-on pins. An id is in at most one list. */
 export interface AreaPins {
   always: string[];
   whenOn: string[];
-  /** Cameras chosen as the collapsed card background. Not drawn as pinned rows. */
-  background: string[];
+  /** @deprecated Legacy camera background list; kept optional for compatibility. */
+  background?: string[];
+  /** Unified display order across `always` and `whenOn`. */
+  order?: string[];
 }
 
-const CAMERA_CYCLE: readonly PinMode[] = ["hidden", "background", "always", "when-on"];
 const ENTITY_CYCLE: readonly PinMode[] = ["hidden", "always", "when-on"];
 
-type StoredMode = "always" | "when-on" | "background";
+type StoredMode = "always" | "when-on";
+type LegacyStoredMode = StoredMode | "background";
 
 function emptyPins(): AreaPins {
   return { always: [], whenOn: [], background: [] };
+}
+
+function sameIds(left: readonly string[], right: readonly string[]): boolean {
+  if (left.length !== right.length) return false;
+  for (let i = 0; i < left.length; i += 1) {
+    if (left[i] !== right[i]) return false;
+  }
+  return true;
 }
 
 function list(ids: readonly string[] | undefined): string[] {
@@ -38,7 +48,7 @@ export function isCameraEntity(entityId: string): boolean {
   return entityId.split(".")[0] === "camera";
 }
 
-function pinEntry(entry: unknown): { id: string; mode: StoredMode } | null {
+function legacyPinEntry(entry: unknown): { id: string; mode: LegacyStoredMode } | null {
   if (typeof entry === "string") return entry.length > 0 ? { id: entry, mode: "always" } : null;
   if (typeof entry !== "object" || entry === null || Array.isArray(entry)) return null;
   const id = (entry as { id?: unknown }).id;
@@ -48,25 +58,57 @@ function pinEntry(entry: unknown): { id: string; mode: StoredMode } | null {
   return null;
 }
 
-/**
- * A JSON string is parsed, then treated like an array. An already-parsed array
- * uses the same rules. Strings are always-pins. `{ id, mode: "when-on" | "always" | "background" }`
- * is a pin object. `background` is the camera collapsed-card photo. The mode is
- * that string, not a JSON string. The last entry for an id wins, in first-seen
- * order, and that id stays in only one list. Null, undefined, bad JSON, and
- * non-arrays are empty.
- */
-export function parseAreaPins(raw: unknown): AreaPins {
+function pinEntry(entry: unknown): { id: string; mode: StoredMode } | null {
+  const parsed = legacyPinEntry(entry);
+  if (!parsed || parsed.mode === "background") return null;
+  return { id: parsed.id, mode: parsed.mode };
+}
+
+function parseRawArray(raw: unknown): unknown[] | null {
   let parsed: unknown = raw;
   if (typeof raw === "string") {
-    if (raw.length === 0) return emptyPins();
+    if (raw.length === 0) return null;
     try {
       parsed = JSON.parse(raw);
     } catch {
-      return emptyPins();
+      return null;
     }
   }
-  if (!Array.isArray(parsed)) return emptyPins();
+  return Array.isArray(parsed) ? parsed : null;
+}
+
+/**
+ * Extracts a legacy `{ id, mode: "background" }` camera entry from a stored
+ * pin array, if its final mode in the array is `"background"`.
+ */
+export function legacyBackgroundCamera(raw: unknown): string | null {
+  const parsed = parseRawArray(raw);
+  if (!parsed) return null;
+  const modes = new Map<string, LegacyStoredMode>();
+  const order: string[] = [];
+  for (const entry of parsed) {
+    const pin = legacyPinEntry(entry);
+    if (!pin) continue;
+    if (!modes.has(pin.id)) order.push(pin.id);
+    modes.set(pin.id, pin.mode);
+  }
+  for (const id of order) {
+    if (modes.get(id) === "background") return id;
+  }
+  return null;
+}
+
+/**
+ * A JSON string is parsed, then treated like an array. An already-parsed array
+ * uses the same rules. Strings are always-pins. `{ id, mode: "when-on" | "always" }`
+ * is a pin object. Legacy `{ id, mode: "background" }` entries are ignored here
+ * (use `legacyBackgroundCamera` for migration). The last entry for an id wins,
+ * in first-seen order, and that id stays in only one list. Null, undefined, bad
+ * JSON, and non-arrays are empty.
+ */
+export function parseAreaPins(raw: unknown): AreaPins {
+  const parsed = parseRawArray(raw);
+  if (!parsed) return emptyPins();
   const modes = new Map<string, StoredMode>();
   const order: string[] = [];
   for (const entry of parsed) {
@@ -76,61 +118,107 @@ export function parseAreaPins(raw: unknown): AreaPins {
     modes.set(pin.id, pin.mode);
   }
   const pins = emptyPins();
+  const pinOrder: string[] = [];
   for (const id of order) {
     const mode = modes.get(id);
-    if (mode === "when-on") pins.whenOn.push(id);
-    else if (mode === "background") pins.background.push(id);
-    else pins.always.push(id);
+    if (mode === "when-on") {
+      pins.whenOn.push(id);
+      pinOrder.push(id);
+    } else {
+      pins.always.push(id);
+      pinOrder.push(id);
+    }
   }
+  if (!sameIds(pinOrder, [...pins.always, ...pins.whenOn])) pins.order = pinOrder;
   return pins;
+}
+
+/** Unified display order across `always` and `whenOn` (excluding `background`). */
+export function pinnedOrder(pins: Pick<AreaPins, "always" | "whenOn" | "order">): string[] {
+  const valid = new Set([...pins.always, ...pins.whenOn]);
+  const seen = new Set<string>();
+  const result: string[] = [];
+  if (pins.order) {
+    for (const id of pins.order) {
+      if (valid.has(id) && !seen.has(id)) {
+        seen.add(id);
+        result.push(id);
+      }
+    }
+  }
+  for (const id of pins.always) {
+    if (!seen.has(id)) {
+      seen.add(id);
+      result.push(id);
+    }
+  }
+  for (const id of pins.whenOn) {
+    if (!seen.has(id)) {
+      seen.add(id);
+      result.push(id);
+    }
+  }
+  return result;
 }
 
 /** Stored pin value. Strings only when every pin is always. */
 export function serializeAreaPins(
   pins: AreaPins,
-): Array<string | { id: string; mode: "when-on" | "background" }> {
-  const whenOn = list(pins.whenOn);
-  const background = list(pins.background);
-  const always = list(pins.always);
-  if (whenOn.length === 0 && background.length === 0) return always;
-  return [
-    ...always,
-    ...whenOn.map((id) => ({ id, mode: "when-on" as const })),
-    ...background.map((id) => ({ id, mode: "background" as const })),
-  ];
+): Array<string | { id: string; mode: "when-on" }> {
+  const ordered = pinnedOrder(pins);
+  const whenOnSet = new Set(list(pins.whenOn));
+  if (whenOnSet.size === 0) return ordered;
+  return ordered.map((id) => (whenOnSet.has(id) ? { id, mode: "when-on" as const } : id));
 }
 
-/** Always, while on, or camera background. Anything else is hidden. */
+/** Always or while on. Anything else is hidden. */
 export function pinMode(pins: AreaPins, entityId: string): PinMode {
   if (pins.always.includes(entityId)) return "always";
   if (pins.whenOn.includes(entityId)) return "when-on";
-  if (list(pins.background).includes(entityId)) return "background";
   return "hidden";
 }
 
-/** Cameras include the background choice. Other entities never land on it. */
-export function pinModeChoices(entityId: string): readonly PinMode[] {
-  return isCameraEntity(entityId) ? CAMERA_CYCLE : ENTITY_CYCLE;
+/** All entities (including cameras) share the same pin mode choices. */
+export function pinModeChoices(_entityId: string): readonly PinMode[] {
+  return ENTITY_CYCLE;
 }
 
 /**
  * Move one entity to `mode`, leaving every other id where it is.
- * A non-camera asked for background becomes hidden. The input is not changed.
+ * The input is not changed.
  */
 export function setPinMode(pins: AreaPins, entityId: string, mode: PinMode): AreaPins {
+  const prevOrder = pinnedOrder(pins);
   const always = pins.always.filter((id) => id !== entityId);
   const whenOn = pins.whenOn.filter((id) => id !== entityId);
-  const background = list(pins.background).filter((id) => id !== entityId);
-  const next = pinModeChoices(entityId).includes(mode) ? mode : "hidden";
-  if (next === "always") always.push(entityId);
-  else if (next === "when-on") whenOn.push(entityId);
-  else if (next === "background") background.push(entityId);
-  return { always, whenOn, background };
+  const next = ENTITY_CYCLE.includes(mode) ? mode : "hidden";
+  let order: string[];
+  if (next === "always" || next === "when-on") {
+    if (next === "always") always.push(entityId);
+    else whenOn.push(entityId);
+    order = prevOrder.includes(entityId) ? prevOrder : [...prevOrder, entityId];
+  } else {
+    order = prevOrder.filter((id) => id !== entityId);
+  }
+  const result: AreaPins = { always, whenOn, background: [] };
+  if (!sameIds(order, [...always, ...whenOn])) result.order = order;
+  return result;
+}
+
+/** Reorder `always` and `whenOn` pins according to `nextOrder`. Any missing pinned ids are appended. */
+export function reorderPins(pins: AreaPins, nextOrder: readonly string[]): AreaPins {
+  const alwaysSet = new Set(pins.always);
+  const whenOnSet = new Set(pins.whenOn);
+  const order = pinnedOrder({ always: pins.always, whenOn: pins.whenOn, order: [...nextOrder] });
+  const always = order.filter((id) => alwaysSet.has(id));
+  const whenOn = order.filter((id) => whenOnSet.has(id));
+  const result: AreaPins = { always, whenOn, background: [] };
+  if (!sameIds(order, [...always, ...whenOn])) result.order = order;
+  return result;
 }
 
 /**
- * Cameras walk hidden, background, always, while on, then hidden.
- * Other entities walk hidden, always, while on, then hidden, and never land on background.
+ * Entities walk hidden, always, while on, then hidden.
  */
 export function cyclePin(pins: AreaPins, entityId: string): AreaPins {
   const order = pinModeChoices(entityId);
@@ -160,17 +248,23 @@ export function pinEntityId(config: Record<string, unknown> | null | undefined):
   return nonEmptyString(config.entity);
 }
 
-/** Popup order, original card objects, first entity id only. */
+/** Stored pin order, original card objects, first entity id only. */
 export function selectPinnedCards(
   cards: readonly Record<string, unknown>[],
   pinned: readonly string[],
 ): Record<string, unknown>[] {
-  const wanted = new Set(pinned);
-  const seen = new Set<string>();
-  const selected: Record<string, unknown>[] = [];
+  const byId = new Map<string, Record<string, unknown>>();
   for (const card of cards) {
     const id = pinEntityId(card);
-    if (!id || !wanted.has(id) || seen.has(id)) continue;
+    if (!id || byId.has(id)) continue;
+    byId.set(id, card);
+  }
+  const seen = new Set<string>();
+  const selected: Record<string, unknown>[] = [];
+  for (const id of pinned) {
+    if (seen.has(id)) continue;
+    const card = byId.get(id);
+    if (!card) continue;
     seen.add(id);
     selected.push(card);
   }

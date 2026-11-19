@@ -21,7 +21,6 @@ const DOT_ORDER = [
   "media",
   "cameras",
   "switches",
-  "occupancy",
   "openings",
   "satellites",
   "sensors",
@@ -120,6 +119,12 @@ describe("demo config", () => {
     assert.equal(view.popup.hash, areaHash(DEMO_AREA_ID));
     assert.equal(view.popup.name, DEMO_NAME);
     assert.equal(String(view.button.styles).includes("background-image"), false);
+    assert.deepEqual(view.content.states[DEMO_ENTITIES.lightDim]?.attributes.rgb_color, [255, 190, 110]);
+    assert.deepEqual(view.buttonInput.lightTint, { r: 255, g: 190, b: 110 });
+    assert.match(String(view.button.styles), /rgba\(255,\s*190,\s*110,\s*0\.\d+\)/);
+    assert.deepEqual(view.buttonInput.presenceBadge, { text: "Occupied", occupied: true });
+    assert.match(String(view.button.styles), /\.area-card-presence-pill/);
+    assert.equal(String(view.button.styles).includes(".bubble-name::after"), false);
 
     for (const id of ROLLUP_ORDER) {
       assert.equal(sectionHasEntities(id, view.content.sections), true, id);
@@ -134,7 +139,6 @@ describe("demo config", () => {
         "area-dot-media-on",
         "area-dot-cameras-off",
         "area-dot-switches-on",
-        "area-dot-occupancy-on",
         "area-dot-openings-off",
         "area-dot-satellites-off",
         "area-dot-sensors-on",

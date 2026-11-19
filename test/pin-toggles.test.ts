@@ -318,24 +318,23 @@ describe("syncPinToggles", () => {
     assert.equal(cover.children.some((child) => child.classList.contains("area-card-pin-switch")), false);
   });
 
-  it("labels the camera background step like the other pin buttons", () => {
+  it("shows the same three pin options for cameras without a background option", () => {
     const camera = cellWith({ type: "picture-entity", entity: "camera.webcam" });
     const { root } = grid([camera]);
     syncPinToggles(root as unknown as ParentNode, {
       editing: true,
-      modeOf: () => "background",
+      modeOf: () => "always",
       onSelect: () => {},
     });
     const button = camera.children[0];
     const trigger = triggerOf(button);
-    assert.equal(button.dataset.pinMode, "background");
-    assert.equal(trigger.getAttribute("aria-label"), "Use as area background");
-    assert.equal(trigger.title, "Use as area background");
-    assert.equal(iconOf(trigger), "mdi:image");
+    assert.equal(button.dataset.pinMode, "always");
+    assert.equal(trigger.getAttribute("aria-label"), "Always on the area card");
+    assert.equal(trigger.title, "Always on the area card");
+    assert.equal(iconOf(trigger), "mdi:pin");
     assert.deepEqual(menuOptions(button), [
       { mode: "hidden", label: "Hidden on the area card", icon: "mdi:eye-off", checked: "false" },
-      { mode: "background", label: "Use as area background", icon: "mdi:image", checked: "true" },
-      { mode: "always", label: "Always on the area card", icon: "mdi:pin", checked: "false" },
+      { mode: "always", label: "Always on the area card", icon: "mdi:pin", checked: "true" },
       { mode: "when-on", label: "On the area card while on", icon: "mdi:eye-check", checked: "false" },
     ]);
   });

@@ -1,15 +1,32 @@
-import { floorIds } from "./floors";
+import { floorsSortedByPresence } from "./floors";
 import type { ClassifierHass } from "./sections";
 
 type FloorCardElement = HTMLElement & {
   hass?: ClassifierHass;
-  setConfig(config: { floor: string }): void;
+  setConfig(config: { floor: string; sort_by_presence?: boolean; collapsed_areas?: number }): void;
 };
 
-const CONFIG_FORM = { schema: [] };
+const CONFIG_FORM = {
+  schema: [
+    {
+      name: "sort_by_presence",
+      label: "Sort floors and areas by presence",
+      default: true,
+      selector: { boolean: {} },
+    },
+    {
+      name: "collapsed_areas",
+      label: "Areas shown when collapsed",
+      default: 0,
+      selector: { number: { min: 0, max: 20, mode: "box" } },
+    },
+  ],
+};
 
 class FloorsCard extends HTMLElement {
   private configured = false;
+  private sortByPresence = true;
+  private collapsedAreas = 0;
   private _hass?: ClassifierHass;
   private floorEls = new Map<string, FloorCardElement>();
   private listEl?: HTMLElement;
@@ -45,7 +62,21 @@ class FloorsCard extends HTMLElement {
     if (!config || typeof config !== "object") {
       throw new Error("Invalid configuration");
     }
+    const raw = config as { sort_by_presence?: unknown; collapsed_areas?: unknown };
+    this.sortByPresence = typeof raw.sort_by_presence === "boolean" ? raw.sort_by_presence : true;
+    const rawCollapsed = raw.collapsed_areas;
+    this.collapsedAreas =
+      typeof rawCollapsed === "number" && Number.isFinite(rawCollapsed)
+        ? Math.max(0, Math.floor(rawCollapsed))
+        : 0;
     this.configured = true;
+    for (const [floorId, el] of this.floorEls) {
+      el.setConfig({
+        floor: floorId,
+        sort_by_presence: this.sortByPresence,
+        collapsed_areas: this.collapsedAreas,
+      });
+    }
     this.schedule();
   }
 
@@ -87,7 +118,7 @@ class FloorsCard extends HTMLElement {
     if (!this.configured || !this._hass) return;
 
     const hass = this._hass;
-    const ids = floorIds(hass);
+    const ids = floorsSortedByPresence(hass, this.sortByPresence);
     // The floor registry has not arrived. Draw nothing.
     if (ids === undefined) return;
 
@@ -124,7 +155,11 @@ class FloorsCard extends HTMLElement {
       let el = this.floorEls.get(floorId);
       if (!el) {
         el = document.createElement("floor-card") as FloorCardElement;
-        el.setConfig({ floor: floorId });
+        el.setConfig({
+          floor: floorId,
+          sort_by_presence: this.sortByPresence,
+          collapsed_areas: this.collapsedAreas,
+        });
       }
       nextEls.set(floorId, el);
       // Move keepers out of the live list before dropping nodes, so a reorder

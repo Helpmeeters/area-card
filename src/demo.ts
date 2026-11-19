@@ -1,5 +1,8 @@
-import { buildButtonConfig, type ButtonConfigInput } from "./button-config";
+import { buildButtonConfig, type ButtonConfigInput, type PresenceBadge } from "./button-config";
+import { applyEntityOrderToSections, type AreaEntityOrder } from "./entity-order";
+import { averageLightColor, type RgbColor } from "./light-tint";
 import { buildPopupConfig } from "./popup-cards";
+import { areaPresenceInfo, formatPresenceBadge } from "./presence";
 import { collapsedDotSlots, parseHideSections, ROLLUP_ORDER, sectionRollups, sectionTitle, withoutSections, type RollupId, type SectionRollup } from "./rollups";
 import { areaDisplay, classifyArea, type AreaSections, type ClassifierHass, type EntityState } from "./sections";
 
@@ -64,7 +67,10 @@ export interface PresentAreaOptions {
   viewportWidth?: number;
   /** Collapsed button picture. Omit to use the area picture. Popup keeps the area picture. */
   shownPicture?: string | null;
+  lightTint?: RgbColor | null;
+  presenceBadge?: PresenceBadge | null;
   unavailable?: boolean;
+  entityOrder?: AreaEntityOrder;
 }
 
 export interface AreaPresentation {
@@ -160,9 +166,22 @@ export function presentArea(
   options: PresentAreaOptions = {},
 ): AreaPresentation {
   const content = contentFor(config, hass);
-  const sections = withoutSections(content.sections, config.hide_sections);
+  const sections = applyEntityOrderToSections(
+    withoutSections(content.sections, config.hide_sections),
+    options.entityOrder,
+  );
   const disabled = options.disabledAutomations ?? new Set<string>();
   const picture = options.shownPicture !== undefined ? options.shownPicture : content.picture;
+  const lightTint =
+    options.lightTint !== undefined
+      ? options.lightTint
+      : picture
+        ? null
+        : averageLightColor(sections.lights, content.states);
+  const presenceBadge =
+    options.presenceBadge !== undefined
+      ? options.presenceBadge
+      : formatPresenceBadge(areaPresenceInfo(sections.occupancy, content.states));
   const buttonInput: ButtonConfigInput = {
     areaId: content.areaId,
     name: content.name,
@@ -171,6 +190,8 @@ export function presentArea(
     states: content.states,
     dotSlots: collapsedDotSlots(config.hide_sections),
     picture,
+    lightTint,
+    presenceBadge,
     unavailable: options.unavailable ?? false,
     disabledAutomations: disabled,
     alignDots: options.alignDots,
@@ -192,6 +213,7 @@ export function presentArea(
         viewportWidth: options.viewportWidth,
         formatEntityState: options.formatEntityState,
         literalState: config.demo,
+        entityOrder: options.entityOrder,
       },
     ),
     rollups: sectionRollups(sections, content.states, disabled),
@@ -247,8 +269,9 @@ export function demoDataset(): DemoDataset {
     }),
     [id.lightDim]: demoState(id.lightDim, "on", {
       friendly_name: "Dimmer",
-      supported_color_modes: ["brightness"],
+      supported_color_modes: ["rgb"],
       brightness: 128,
+      rgb_color: [255, 190, 110],
     }),
     [id.lightOnOff]: demoState(id.lightOnOff, "off", {
       friendly_name: "Lamp",

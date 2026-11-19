@@ -2954,13 +2954,12 @@ describe("climate subtitle", () => {
     assert.equal(config.state_content, '{{ "Temp \\"C\\" \\\\ 21 °C" }}');
   });
 
-  it("drops climate, buttons, scenes, scripts, helpers, and automations from collapsed dots", () => {
+  it("drops climate, occupancy, buttons, scenes, scripts, helpers, and automations from collapsed dots", () => {
     assert.deepEqual(collapsedDotSlots([]), [
       "lights",
       "media",
       "cameras",
       "switches",
-      "occupancy",
       "openings",
       "satellites",
       "sensors",
@@ -2968,19 +2967,19 @@ describe("climate subtitle", () => {
       "vacuums",
     ]);
     assert.equal(collapsedDotSlots([]).includes("climate"), false);
+    assert.equal(collapsedDotSlots([]).includes("occupancy"), false);
     assert.equal(collapsedDotSlots([]).includes("buttons"), false);
     assert.equal(collapsedDotSlots([]).includes("scenes"), false);
     assert.equal(collapsedDotSlots([]).includes("scripts"), false);
     assert.equal(collapsedDotSlots([]).includes("helpers"), false);
     assert.equal(collapsedDotSlots([]).includes("automations"), false);
-    for (const id of ["climate", "sensors", "locks", "vacuums", "buttons", "scenes", "scripts", "helpers", "automations"]) {
+    for (const id of ["climate", "occupancy", "sensors", "locks", "vacuums", "buttons", "scenes", "scripts", "helpers", "automations"]) {
       assert.equal((ROLLUP_ORDER as readonly string[]).includes(id), true, id);
     }
     assert.deepEqual(collapsedDotSlots(["media"]), [
       "lights",
       "cameras",
       "switches",
-      "occupancy",
       "openings",
       "satellites",
       "sensors",
@@ -3558,7 +3557,7 @@ describe("cameras", () => {
     const camera = cards.find((card) => card.entity === webcam);
     assert.equal(camera?.type, "picture-entity");
     assert.equal(camera?.camera_image, webcam);
-    assert.equal(camera?.camera_view, "auto");
+    assert.equal(camera?.camera_view, "live");
     assert.equal(camera?.show_name, true);
     assert.equal(camera?.name, "Webcam");
     assert.deepEqual(camera?.tap_action, { action: "more-info" });
@@ -3620,6 +3619,8 @@ describe("floor expanded storage", () => {
     assert.deepEqual(floorRuntimeConfig("upstairs"), {
       floor: "upstairs",
       type: "custom:vertical-stack-in-card",
+      sortByPresence: true,
+      collapsedAreas: 0,
     });
   });
 

@@ -1,9 +1,15 @@
 import { automationStateText, helperStateText } from "./automation-subtitle";
 import { climateSubtitle } from "./climate-subtitle";
+import { lightTintBackgroundStyles, type RgbColor } from "./light-tint";
 import { pictureBackgroundStyles } from "./picture";
 import { emptyRollupDotClass, FLOOR_CHEVRON_PX, ROLLUP_ORDER, rollupDotClass, rollupDotStyles, sectionIcon, sectionRollups, type RollupId, type SectionRollup } from "./rollups";
 import type { AreaSections, EntityState } from "./sections";
 import { areaHash, BUBBLE_CARD_TYPE } from "./tags";
+
+export interface PresenceBadge {
+  text: string;
+  occupied: boolean;
+}
 
 export interface ButtonConfigInput {
   areaId: string;
@@ -14,6 +20,8 @@ export interface ButtonConfigInput {
   /** Ordered list of section ids to include as dot sub-buttons. Defaults to all slots (ROLLUP_ORDER). */
   dotSlots?: readonly RollupId[];
   picture?: string | null;
+  lightTint?: RgbColor | null;
+  presenceBadge?: PresenceBadge | null;
   unavailable?: boolean;
   /** Automations that cannot trigger because their devices are unavailable. */
   disabledAutomations?: ReadonlySet<string>;
@@ -110,7 +118,14 @@ export function buildButtonConfig(input: ButtonConfigInput): Record<string, unkn
       double_tap_action: { action: "none" },
     },
     sub_button: subButtons,
-    styles: buttonStyles(rollups, input.picture, input.unavailable, input.alignDots),
+    styles: buttonStyles(
+      rollups,
+      input.picture,
+      input.lightTint,
+      input.presenceBadge,
+      input.unavailable,
+      input.alignDots,
+    ),
   };
   const climate = climateSubtitle(
     input.sections.climate,
@@ -139,14 +154,73 @@ function countSubtitle(rollups: readonly SectionRollup[]): string {
 function buttonStyles(
   rollups: ReturnType<typeof sectionRollups>,
   picture: string | null | undefined,
+  lightTint: RgbColor | null | undefined,
+  presenceBadge: PresenceBadge | null | undefined,
   unavailable: boolean | undefined,
   alignDots: boolean | undefined,
 ): string {
   const parts = [rollupDotStyles(rollups), STATE_LINE_STYLES];
   if (alignDots) parts.push(alignDotStyles());
   if (picture) parts.push(pictureBackgroundStyles(picture, "button"));
+  else if (lightTint) parts.push(lightTintBackgroundStyles(lightTint, "button"));
+  if (presenceBadge) parts.push(presencePillStyles(Boolean(picture)));
   if (unavailable) parts.push(UNAVAILABLE_BUTTON_STYLES);
   return parts.join("\n");
+}
+
+function presencePillStyles(overPicture: boolean): string {
+  const occupiedBg = overPicture
+    ? "rgba(76, 175, 80, 0.34)"
+    : "color-mix(in srgb, var(--success-color, #4caf50) 20%, transparent)";
+  const occupiedColor = overPicture
+    ? "#d7ffd9"
+    : "var(--success-color, #4caf50)";
+  const idleBg = overPicture
+    ? "rgba(255, 255, 255, 0.16)"
+    : "color-mix(in srgb, var(--secondary-text-color, #888) 16%, transparent)";
+  const idleColor = overPicture
+    ? "rgba(255, 255, 255, 0.88)"
+    : "var(--secondary-text-color)";
+  return [
+    ".area-card-name-row {",
+    "  display: flex;",
+    "  align-items: center;",
+    "  min-width: 0;",
+    "  max-width: 100%;",
+    "}",
+    ".area-card-name-row > .bubble-name {",
+    "  display: block;",
+    "  min-width: 0;",
+    "  overflow: hidden;",
+    "  text-overflow: ellipsis;",
+    "  white-space: nowrap;",
+    "}",
+    ".area-card-presence-pill {",
+    "  display: inline-flex;",
+    "  align-items: center;",
+    "  flex-shrink: 0;",
+    "  margin-left: 6px;",
+    "  padding: 1px 6px;",
+    "  border-radius: 999px;",
+    "  font-size: 10px;",
+    "  font-weight: 600;",
+    "  line-height: 16px;",
+    "  letter-spacing: 0.01em;",
+    `  background: ${idleBg};`,
+    `  color: ${idleColor};`,
+    "  text-shadow: none;",
+    "  pointer-events: auto;",
+    "  cursor: default;",
+    "}",
+    '.area-card-presence-pill[data-occupied="1"] {',
+    `  background: ${occupiedBg};`,
+    `  color: ${occupiedColor};`,
+    "}",
+    ".area-card-presence-pill:focus-visible {",
+    "  outline: 2px solid var(--primary-color, currentColor);",
+    "  outline-offset: 1px;",
+    "}",
+  ].join("\n");
 }
 
 /** Bubble already insets the row 8px. The extra margin clears the floor chevron. */

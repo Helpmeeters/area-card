@@ -1,8 +1,10 @@
 import { syncAutomationSubtitle } from "./automation-subtitle";
+import { areaBackgroundEqual, type AreaBackgroundMode } from "./background-mode";
 import { createBatteryButton, syncBatteryButton, syncBatteryReadouts } from "./battery-ui";
 import type { BatteryMode } from "./battery";
 import { loadDisabledAutomations } from "./automations";
 import { buildButtonConfig, type ButtonConfigInput } from "./button-config";
+import { averageLightColor, lightTintBackgroundStyles, type RgbColor } from "./light-tint";
 import {
   AREA_CARD_CONFIG_FORM,
   contentFor,
@@ -25,17 +27,19 @@ import {
   primeCameraVideo,
   type CameraStreamPlayer,
 } from "./camera-video";
-import { hideAreaDotTooltip, syncAreaDotTooltips, type DotTooltipSource } from "./dot-tooltip";
+import { hideAreaDotTooltip, syncAreaDotTooltips, syncPresencePillTooltip, type DotTooltipSource } from "./dot-tooltip";
 import { ensureDeps } from "./ensure-deps";
 import { syncCardThemeFallback } from "./theme";
 import "./floor-card";
 import "./floors-card";
 import "./light-row";
 import "./section-title";
+import { entityScopeMap, setScopeEntityOrder } from "./entity-order";
 import {
   layoutPinnedCards,
   pinEntityId,
   pinMode,
+  reorderPins,
   setPinMode,
   pinnedEdgeRadius,
   pinnedKey,
@@ -49,8 +53,15 @@ import {
   type PinnedLayoutWidth,
 } from "./pinned-entities";
 import { syncPinToggles } from "./pin-toggles";
+import {
+  syncCardBackgroundSection,
+  syncPinOrderSection,
+  syncPopupEditGuards,
+  syncSectionDragOrder,
+} from "./popup-edit";
 import { visiblePinnedIds, type PinStickyState } from "./pin-visibility";
 import {
+  backgroundCameraId,
   buttonPictureSuppressStyles,
   cameraEntityPicture,
   cameraStreamPath,
@@ -59,8 +70,7 @@ import {
   clusterPictureWhileVideo,
   CLUSTER_PICTURE_RADIUS,
   clusterPictureProperties,
-  collapsedCardPicture,
-  firstBackgroundCamera,
+  collapsedPictureForMode,
   pictureAfterAutoplayFailure,
   pictureAfterCameraLoad,
   picturePlacement,
@@ -69,14 +79,20 @@ import {
 } from "./picture";
 import { syncAreaEditButton, syncCloseButtonTooltip, syncPinEditButton } from "./header-tooltips";
 import { areaSettingsPath, ensureHeaderButtons } from "./popup-chrome";
-import { type RollupId, type SectionRollup } from "./rollups";
+import { withoutSections, type RollupId, type SectionRollup } from "./rollups";
 import { areaUnavailable, membershipKey, type ClassifierHass } from "./sections";
 import { BUBBLE_ELEMENT } from "./tags";
 import {
+  backgroundModeKey,
   batteryModeKey,
+  cachedAreaBackground,
   cachedBatteryMode,
+  cachedEntityOrder,
   cachedPins,
   ensureUserData,
+  entityOrderKey,
+  saveAreaBackground,
+  saveAreaEntityOrder,
   saveAreaPins,
   saveBatteryMode,
   subscribeUserData,
@@ -274,6 +290,7 @@ class AreaCard extends HTMLElement {
   private editFrame = 0;
   private editTries = 0;
   private editAreaId?: string;
+  private applyingAreaEdit = false;
   private pinEditing = false;
   private pinSticky = new Map<string, PinStickyState>();
   private pinStickyTimer = 0;
@@ -287,6 +304,9 @@ class AreaCard extends HTMLElement {
   private areaPicture: string | null = null;
   /** Area picture from the registry. A camera background does not replace the popup. */
   private areaPhoto: string | null = null;
+  private roomName = "";
+  private lightIds: readonly string[] = [];
+  private resolvedLightTint: RgbColor | null = null;
   private cameraOrder: readonly string[] = [];
   private buttonInput?: ButtonConfigInput;
   private cameraLoads = new Map<string, CameraPictureLoad>();
@@ -302,6 +322,7 @@ class AreaCard extends HTMLElement {
   private videoPlayer?: CameraStreamPlayer;
   private pinnedRowsVisible = false;
   private popupCards: readonly Record<string, unknown>[] = [];
+  private entityScopes = new Map<string, string>();
   private pinnedConfigKey = new WeakMap<HTMLElement, string>();
   private resizeTimer = 0;
   private lastViewport = 0;
@@ -385,6 +406,15 @@ class AreaCard extends HTMLElement {
         this.paintBatteries(cachedBatteryMode(areaId));
         return;
       }
+      if (key === entityOrderKey(areaId)) {
+        this.schedule();
+        return;
+      }
+      if (key === backgroundModeKey(areaId)) {
+        this.syncPinnedRow(hass, areaId);
+        this.applyAreaEdit();
+        return;
+      }
       if (key !== pinnedKey(areaId)) return;
       this.syncPinnedRow(hass, areaId);
       this.applyAreaEdit();
@@ -447,6 +477,11 @@ class AreaCard extends HTMLElement {
     const seeded = contentFor(latest, hass);
     this.areaPhoto = demo ? null : seeded.picture;
     this.cameraOrder = demo ? [] : seeded.sections.cameras;
+    const bgMode = cachedAreaBackground(seeded.areaId);
+    const visibleLightIds = withoutSections(seeded.sections, latest.hide_sections).lights;
+    this.lightIds = visibleLightIds;
+    this.resolvedLightTint =
+      bgMode.mode === "light-tint" ? averageLightColor(visibleLightIds, seeded.states) : null;
     const shownPicture = demo ? null : this.resolveCollapsedPicture(hass, seeded.areaId);
     const unavailable = demo ? false : areaUnavailable(hass, seeded.areaId, disabled);
     const formatEntityState = hass.formatEntityState;
@@ -460,13 +495,17 @@ class AreaCard extends HTMLElement {
       formatEntityState: formatState,
       viewportWidth,
       shownPicture,
+      lightTint: this.pinnedRowsVisible ? null : this.resolvedLightTint,
       unavailable,
+      entityOrder: cachedEntityOrder(seeded.areaId),
     });
     const areaId = view.content.areaId;
     const { name, icon, sections } = view.content;
+    this.roomName = name;
     const visibleSections = view.sections;
     const states = view.content.states;
     const signature = membershipKey(areaId, name, icon, sections);
+    this.entityScopes = entityScopeMap(visibleSections);
     this.dotRollups = view.rollups;
     this.dotTooltipSource = {
       sections: visibleSections,
@@ -563,8 +602,46 @@ class AreaCard extends HTMLElement {
   private applyDotTooltips(): void {
     const root = this.buttonEl?.shadowRoot;
     if (!root) return;
+    this.syncPresencePill(root);
     syncAreaDotTooltips(root, this.dotTooltipSource);
     syncAutomationSubtitle(root);
+  }
+
+  private syncPresencePill(root: ShadowRoot): void {
+    const badge = this.buttonInput?.presenceBadge ?? null;
+    const nameContainer = root.querySelector(".bubble-name-container");
+    const nameEl = root.querySelector(".bubble-name");
+    if (!(nameContainer instanceof HTMLElement) || !(nameEl instanceof HTMLElement)) return;
+    if (!badge) {
+      root.querySelector(".area-card-presence-pill")?.remove();
+      const parent = nameEl.parentElement;
+      if (parent instanceof HTMLElement && parent.classList.contains("area-card-name-row")) {
+        parent.before(nameEl);
+        parent.remove();
+      }
+      return;
+    }
+    let row = nameEl.parentElement;
+    if (!(row instanceof HTMLElement) || !row.classList.contains("area-card-name-row")) {
+      row = document.createElement("div");
+      row.className = "area-card-name-row";
+      nameEl.before(row);
+      row.append(nameEl);
+    }
+    const existingPill = row.querySelector(":scope > .area-card-presence-pill");
+    let pill: HTMLSpanElement;
+    if (existingPill instanceof HTMLSpanElement) {
+      pill = existingPill;
+    } else {
+      pill = document.createElement("span");
+      pill.className = "area-card-presence-pill";
+      pill.tabIndex = 0;
+      row.append(pill);
+    }
+    if (pill.textContent !== badge.text) pill.textContent = badge.text;
+    const occupiedFlag = badge.occupied ? "1" : "0";
+    if (pill.dataset.occupied !== occupiedFlag) pill.dataset.occupied = occupiedFlag;
+    syncPresencePillTooltip(pill, this.dotTooltipSource);
   }
 
   private stopAreaEditWatch(): void {
@@ -613,31 +690,68 @@ class AreaCard extends HTMLElement {
   private applyAreaEdit(): void {
     const root = this.popupEl?.shadowRoot;
     const areaId = this.editAreaId;
-    if (!root || !areaId) return;
-    const popup = root.querySelector(".bubble-pop-up");
-    if (this.pinEditing && !popup?.classList.contains("is-popup-opened")) {
-      this.pinEditing = false;
+    if (!root || !areaId || this.applyingAreaEdit) return;
+    this.applyingAreaEdit = true;
+    this.editObserver?.disconnect();
+    try {
+      const popup = root.querySelector(".bubble-pop-up");
+      if (this.pinEditing && !popup?.classList.contains("is-popup-opened")) {
+        this.pinEditing = false;
+      }
+      const actions = root.querySelector(".bubble-header-actions");
+      if (actions) {
+        const battery = this.headerButton(actions, ".area-card-battery", this.batteryEl, () => this.batteryButton());
+        const pencil = this.headerButton(actions, ".area-card-pin-edit", this.pinEditEl, () => this.pinEditButton());
+        const gear = this.headerButton(actions, ".area-card-edit-area", this.areaEditEl, () => this.areaEditButton(areaId));
+        this.batteryEl = battery;
+        this.pinEditEl = pencil;
+        this.areaEditEl = gear;
+        ensureHeaderButtons(actions, battery, pencil, gear);
+        syncPinEditButton(pencil, this.pinEditing);
+        syncAreaEditButton(gear);
+        syncCloseButtonTooltip(actions);
+        syncBatteryButton(battery, cachedBatteryMode(areaId));
+      }
+      this.paintBatteries(cachedBatteryMode(areaId));
+      syncPopupEditGuards(root, this.pinEditing);
+      syncPinToggles(root, {
+        editing: this.pinEditing,
+        modeOf: (entityId) => pinMode(cachedPins(areaId), entityId),
+        onSelect: (entityId, mode) => this.pinSelected(areaId, entityId, mode),
+      });
+      if (this._hass) {
+        syncCardBackgroundSection(root, {
+          editing: this.pinEditing,
+          current: cachedAreaBackground(areaId),
+          areaPicture: this.areaPhoto,
+          cameras: this.cameraOrder,
+          states: this._hass.states,
+          roomName: this.roomName,
+          onSelect: (choice) => this.backgroundSelected(areaId, choice),
+        });
+        syncPinOrderSection(root, {
+          editing: this.pinEditing,
+          pins: cachedPins(areaId),
+          popupCards: this.popupCards,
+          hass: this._hass,
+          onReorderPins: (nextOrder) => this.pinsReordered(areaId, nextOrder),
+        });
+      }
+      syncSectionDragOrder(root, {
+        editing: this.pinEditing,
+        onReorderScope: (draggedId, scopeIds) => this.sectionReordered(areaId, draggedId, scopeIds),
+      });
+    } finally {
+      this.applyingAreaEdit = false;
+      if (this.editObserver && this.editHost === this.popupEl && this.isConnected) {
+        this.editObserver.observe(root, {
+          childList: true,
+          subtree: true,
+          attributes: true,
+          attributeFilter: ["class"],
+        });
+      }
     }
-    const actions = root.querySelector(".bubble-header-actions");
-    if (actions) {
-      const battery = this.headerButton(actions, ".area-card-battery", this.batteryEl, () => this.batteryButton());
-      const pencil = this.headerButton(actions, ".area-card-pin-edit", this.pinEditEl, () => this.pinEditButton());
-      const gear = this.headerButton(actions, ".area-card-edit-area", this.areaEditEl, () => this.areaEditButton(areaId));
-      this.batteryEl = battery;
-      this.pinEditEl = pencil;
-      this.areaEditEl = gear;
-      ensureHeaderButtons(actions, battery, pencil, gear);
-      syncPinEditButton(pencil, this.pinEditing);
-      syncAreaEditButton(gear);
-      syncCloseButtonTooltip(actions);
-      syncBatteryButton(battery, cachedBatteryMode(areaId));
-    }
-    this.paintBatteries(cachedBatteryMode(areaId));
-    syncPinToggles(root, {
-      editing: this.pinEditing,
-      modeOf: (entityId) => pinMode(cachedPins(areaId), entityId),
-      onSelect: (entityId, mode) => this.pinSelected(areaId, entityId, mode),
-    });
   }
 
   private headerButton(
@@ -673,6 +787,22 @@ class AreaCard extends HTMLElement {
     return button;
   }
 
+  private backgroundSelected(areaId: string, choice: AreaBackgroundMode): void {
+    const hass = this._hass;
+    if (!hass || this.boundAreaId() !== areaId) return;
+    if (areaBackgroundEqual(cachedAreaBackground(areaId), choice)) return;
+    void saveAreaBackground(hass, areaId, choice).then(
+      () => {
+        if (this._hass !== hass || this.boundAreaId() !== areaId) return;
+        this.syncPinnedRow(hass, areaId);
+        this.applyAreaEdit();
+      },
+      () => {
+        // A rejected save leaves the cache and the on-screen background unchanged.
+      },
+    );
+  }
+
   private pinSelected(areaId: string, entityId: string, mode: PinMode): void {
     const hass = this._hass;
     if (!hass || this.boundAreaId() !== areaId) return;
@@ -687,6 +817,39 @@ class AreaCard extends HTMLElement {
       },
       () => {
         // A rejected save leaves the cache and the on-screen mode unchanged.
+      },
+    );
+  }
+
+  private pinsReordered(areaId: string, nextOrder: readonly string[]): void {
+    const hass = this._hass;
+    if (!hass || this.boundAreaId() !== areaId) return;
+    const next = reorderPins(cachedPins(areaId), nextOrder);
+    void saveAreaPins(hass, areaId, next).then(
+      () => {
+        if (this._hass !== hass || this.boundAreaId() !== areaId) return;
+        this.syncPinnedRow(hass, areaId);
+        this.applyAreaEdit();
+      },
+      () => {
+        // A rejected save leaves the cache and the on-screen order unchanged.
+      },
+    );
+  }
+
+  private sectionReordered(areaId: string, draggedId: string, scopeIds: readonly string[]): void {
+    const hass = this._hass;
+    if (!hass || this.boundAreaId() !== areaId) return;
+    const scope = this.entityScopes.get(draggedId);
+    if (!scope) return;
+    const next = setScopeEntityOrder(cachedEntityOrder(areaId), scope, scopeIds);
+    void saveAreaEntityOrder(hass, areaId, next).then(
+      () => {
+        if (this._hass !== hass || this.boundAreaId() !== areaId) return;
+        this.schedule();
+      },
+      () => {
+        // A rejected save leaves the cache and the on-screen order unchanged.
       },
     );
   }
@@ -712,8 +875,10 @@ class AreaCard extends HTMLElement {
   }
 
   private syncPinnedRow(hass: ClassifierHass, areaId: string): void {
+    const bgMode = cachedAreaBackground(areaId);
+    this.resolvedLightTint =
+      bgMode.mode === "light-tint" ? averageLightColor(this.lightIds, hass.states ?? {}) : null;
     const shown = this.resolveCollapsedPicture(hass, areaId);
-    this.applyShownPicture(hass, shown);
     this.syncCameraVideo(hass, areaId);
     const host = this.pinnedHost();
     const now = Date.now();
@@ -730,6 +895,7 @@ class AreaCard extends HTMLElement {
     const selected = selectPinnedCards(this.popupCards, visible.ids);
     const layout = layoutPinnedCards(selected);
     this.pinnedRowsVisible = layout.length > 0;
+    this.applyShownPicture(hass, shown);
     const wanted = new Set<string>();
     for (const row of layout) {
       for (const item of row.cards) {
@@ -847,10 +1013,19 @@ class AreaCard extends HTMLElement {
     requestAnimationFrame(() => clear(0));
   }
 
+  private clusterLightTint(): RgbColor | null {
+    if (!this.pinnedRowsVisible) return null;
+    const areaId = this.boundAreaId();
+    if (!areaId) return null;
+    if (cachedAreaBackground(areaId).mode !== "light-tint") return null;
+    return this.resolvedLightTint;
+  }
+
   private clearPinnedCardChrome(card: HTMLElement): void {
     card.style.setProperty("margin", "0", "important");
     const clusterPicture = picturePlacement(this.areaPicture, this.pinnedRowsVisible) === "cluster";
-    if (clusterPicture) {
+    const clusterTint = this.clusterLightTint();
+    if (clusterPicture || clusterTint) {
       card.style.setProperty("background", "transparent", "important");
       card.style.setProperty("box-shadow", "none", "important");
       card.style.setProperty("backdrop-filter", "none", "important");
@@ -888,7 +1063,11 @@ class AreaCard extends HTMLElement {
         root.append(style);
       }
       const radiusText = `:host{margin:0 !important;display:block !important;width:100% !important}ha-card{margin:0 !important;${radius}}`;
-      const text = clusterPicture ? `${radiusText}\n${pinnedPictureSurfaceStyles()}` : radiusText;
+      const text = clusterPicture
+        ? `${radiusText}\n${pinnedPictureSurfaceStyles()}`
+        : clusterTint
+          ? `${radiusText}\nha-card{background:transparent !important;background-color:transparent !important;border:none !important;box-shadow:none !important;--ha-card-background:transparent;--card-background-color:transparent;--ha-card-background-color:transparent;}`
+          : radiusText;
       if (style.textContent !== text) style.textContent = text;
     }
     applyPinnedSideBySide(card);
@@ -914,10 +1093,18 @@ class AreaCard extends HTMLElement {
    * load, leaves the area picture in place.
    */
   private resolveCollapsedPicture(hass: ClassifierHass, areaId: string): string | null {
+    const bgMode = cachedAreaBackground(areaId);
+    if (bgMode.mode === "light-tint") {
+      this.heldCamera = null;
+      return null;
+    }
     const area = this.areaPhoto && this.areaPhoto.length > 0 ? this.areaPhoto : null;
-    const background = cachedPins(areaId).background ?? [];
-    const chosen = firstBackgroundCamera(this.cameraOrder, background);
-    const candidate = collapsedCardPicture(area, this.cameraOrder, background, (id) => {
+    if (bgMode.mode === "area-picture") {
+      this.heldCamera = null;
+      return area;
+    }
+    const chosen = backgroundCameraId(bgMode, this.cameraOrder);
+    const candidate = collapsedPictureForMode(bgMode, area, this.cameraOrder, (id) => {
       const raw = cameraEntityPicture(hass.states?.[id]);
       if (!raw) return null;
       return typeof hass.hassUrl === "function" ? hass.hassUrl(raw) : raw;
@@ -956,12 +1143,12 @@ class AreaCard extends HTMLElement {
     image.src = url;
   }
 
-  /** Rebuilds the collapsed button when its photo changes. The popup config is left alone. */
+  /** Rebuilds the collapsed button when its photo or light tint changes. The popup config is left alone. */
   private applyShownPicture(hass: ClassifierHass, shown: string | null): void {
-    if (shown === this.areaPicture) return;
     this.areaPicture = shown;
     if (!this.buttonInput || !this.buttonEl) return;
-    this.buttonInput = { ...this.buttonInput, picture: shown };
+    const nextTint = shown || this.pinnedRowsVisible ? null : this.resolvedLightTint;
+    this.buttonInput = { ...this.buttonInput, picture: shown, lightTint: nextTint };
     const buttonConfig = buildButtonConfig(this.buttonInput);
     const buttonKey = JSON.stringify(buttonConfig);
     if (this.buttonKey === buttonKey) return;
@@ -977,7 +1164,7 @@ class AreaCard extends HTMLElement {
 
   /** Start the chosen camera's muted HLS video, or leave the still in place. */
   private syncCameraVideo(hass: ClassifierHass, areaId: string): void {
-    const chosen = firstBackgroundCamera(this.cameraOrder, cachedPins(areaId).background ?? []);
+    const chosen = backgroundCameraId(cachedAreaBackground(areaId), this.cameraOrder);
     if (!chosen || !cameraSupportsStream(hass.states?.[chosen])) {
       this.stopCameraVideo();
       return;
@@ -1188,6 +1375,7 @@ class AreaCard extends HTMLElement {
     const videoCovers = this.cameraVideoCovers();
     const videoPlaying = this.streamState?.phase === "playing";
     const placement = picturePlacement(this.areaPicture, pinnedRowsVisible);
+    const clusterTint = pinnedRowsVisible ? this.clusterLightTint() : null;
     const cluster = this.ensurePictureCluster();
     if (cluster && cluster !== this) {
       this.applyClusterLayout(cluster);
@@ -1196,13 +1384,24 @@ class AreaCard extends HTMLElement {
         placement === "cluster" || videoCovers ? this.areaPicture : null,
       );
       if (underVideo) {
+        cluster.style.removeProperty("background");
         const props = clusterPictureProperties(underVideo);
         cluster.style.setProperty("background-image", props["background-image"]);
         cluster.style.setProperty("background-size", props["background-size"]);
         cluster.style.setProperty("background-position", props["background-position"]);
         cluster.style.setProperty("border-radius", props["border-radius"]);
         cluster.style.setProperty("--ha-card-backdrop-filter", props["--ha-card-backdrop-filter"]);
+      } else if (clusterTint) {
+        cluster.style.removeProperty("background-image");
+        cluster.style.removeProperty("background-size");
+        cluster.style.removeProperty("background-position");
+        cluster.style.removeProperty("--ha-card-backdrop-filter");
+        const decl = lightTintBackgroundStyles(clusterTint, "cluster").trim();
+        const match = /^background:\s*(.+?)\s*!important;?$/i.exec(decl);
+        if (match) cluster.style.setProperty("background", match[1], "important");
+        cluster.style.setProperty("border-radius", CLUSTER_PICTURE_RADIUS);
       } else {
+        cluster.style.removeProperty("background");
         cluster.style.removeProperty("background-image");
         cluster.style.removeProperty("background-size");
         cluster.style.removeProperty("background-position");
@@ -1211,7 +1410,7 @@ class AreaCard extends HTMLElement {
       }
       this.mountCameraVideo(cluster);
     }
-    this.syncButtonPictureSuppress(placement === "cluster" || videoCovers);
+    this.syncButtonPictureSuppress(placement === "cluster" || videoCovers || Boolean(clusterTint));
     const host = this.pinnedEl;
     if (!host) return;
     for (const card of host.querySelectorAll<HTMLElement>("[data-pin-entity]")) {
@@ -1306,7 +1505,11 @@ class AreaCard extends HTMLElement {
     if (apply()) return;
     let tries = 0;
     const tick = () => {
-      if (picturePlacement(this.areaPicture, this.pinnedRowsVisible) !== "cluster" && !this.cameraVideoCovers()) {
+      if (
+        picturePlacement(this.areaPicture, this.pinnedRowsVisible) !== "cluster" &&
+        !this.cameraVideoCovers() &&
+        !this.clusterLightTint()
+      ) {
         button.shadowRoot?.querySelector("#area-card-picture-suppress")?.remove();
         return;
       }

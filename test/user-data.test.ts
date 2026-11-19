@@ -4,12 +4,15 @@ import { floorExpandedKey } from "../src/floor-state";
 import { pinnedKey, serializeAreaPins, type AreaPins } from "../src/pinned-entities";
 import type { ClassifierHass } from "../src/sections";
 import {
+  backgroundModeKey,
   batteryModeKey,
+  cachedAreaBackground,
   cachedBatteryMode,
   cachedFloorExpanded,
   cachedPins,
   ensureUserData,
   resetUserDataForTests,
+  saveAreaBackground,
   saveAreaPins,
   saveBatteryMode,
   saveFloorExpanded,
@@ -501,5 +504,26 @@ describe("frontend user data", { concurrency: 1 }, () => {
     assert.equal(cachedBatteryMode("kitchen"), "off");
     assert.equal(cachedBatteryMode("bedroom"), "red");
     assert.equal(cachedPins("kitchen").always[0], "light.a");
+  });
+
+  it("caches, saves, and migrates legacy camera background entries", async () => {
+    const harness = createHarness();
+    const pending = ensureUserData(harness.hass);
+    harness.emit({
+      [pinnedKey("kitchen")]: ["light.a", { id: "camera.kitchen", mode: "background" }],
+      [pinnedKey("porch")]: [{ id: "camera.porch_old", mode: "background" }],
+      [backgroundModeKey("porch")]: { mode: "area-picture" },
+    });
+    await pending;
+
+    assert.deepEqual(cachedAreaBackground("kitchen"), { mode: "camera", entityId: "camera.kitchen" });
+    assert.deepEqual(cachedAreaBackground("porch"), { mode: "area-picture" });
+    assert.deepEqual(cachedAreaBackground("office"), { mode: "light-tint" });
+    assert.deepEqual(cachedPins("kitchen"), { always: ["light.a"], whenOn: [], background: [] });
+
+    await saveAreaBackground(harness.hass, "office", { mode: "camera", entityId: "camera.office" });
+    assert.deepEqual(cachedAreaBackground("office"), { mode: "camera", entityId: "camera.office" });
+    const saved = harness.calls.find((call) => call.key === backgroundModeKey("office"));
+    assert.deepEqual(saved?.value, { mode: "camera", entityId: "camera.office" });
   });
 });

@@ -4,12 +4,31 @@
  * itself, so this module subscribes with `frontend/subscribe_user_data`.
  * The first snapshot copies matching localStorage keys once.
  */
+import {
+  BACKGROUND_MODE_KEY_PREFIX,
+  areaBackgroundEqual,
+  backgroundModeKey,
+  parseAreaBackground,
+  serializeAreaBackground,
+  type AreaBackgroundMode,
+} from "./background-mode";
 import { parseBatteryMode, type BatteryMode } from "./battery";
+import {
+  ENTITY_ORDER_KEY_PREFIX,
+  cloneEntityOrder,
+  entityOrderEqual,
+  entityOrderKey,
+  parseEntityOrder,
+  serializeEntityOrder,
+  type AreaEntityOrder,
+} from "./entity-order";
 import { FLOOR_EXPANDED_KEY_PREFIX, floorExpandedKey } from "./floor-state";
 import {
   PINNED_KEY_PREFIX,
+  legacyBackgroundCamera,
   parseAreaPins,
   pinnedKey,
+  pinnedOrder,
   serializeAreaPins,
   type AreaPins,
 } from "./pinned-entities";
@@ -36,7 +55,9 @@ interface FrontendHass {
 type CacheEntry =
   | { kind: "pins"; pins: AreaPins }
   | { kind: "floor"; expanded: boolean }
-  | { kind: "battery"; mode: BatteryMode };
+  | { kind: "battery"; mode: BatteryMode }
+  | { kind: "order"; order: AreaEntityOrder }
+  | { kind: "background"; bg: AreaBackgroundMode };
 
 interface WriteChain {
   count: number;
@@ -78,8 +99,16 @@ function isBatteryKey(key: string): boolean {
   return key.startsWith(BATTERY_MODE_KEY_PREFIX);
 }
 
+function isOrderKey(key: string): boolean {
+  return key.startsWith(ENTITY_ORDER_KEY_PREFIX);
+}
+
+function isBackgroundKey(key: string): boolean {
+  return key.startsWith(BACKGROUND_MODE_KEY_PREFIX);
+}
+
 function isAreaCardKey(key: string): boolean {
-  return isPinKey(key) || isFloorKey(key) || isBatteryKey(key);
+  return isPinKey(key) || isFloorKey(key) || isBatteryKey(key) || isOrderKey(key) || isBackgroundKey(key);
 }
 
 function asDict(value: unknown): Record<string, unknown> | undefined {
@@ -103,12 +132,20 @@ function pinsEqual(left: AreaPins, right: AreaPins): boolean {
   return (
     sameIds(left.always, right.always) &&
     sameIds(left.whenOn, right.whenOn) &&
-    sameIds(pinBackground(left), pinBackground(right))
+    sameIds(pinBackground(left), pinBackground(right)) &&
+    sameIds(pinnedOrder(left), pinnedOrder(right))
   );
 }
 
 function clonePins(pins: AreaPins): AreaPins {
-  return { always: [...pins.always], whenOn: [...pins.whenOn], background: [...pinBackground(pins)] };
+  const order = pinnedOrder(pins);
+  const defaultOrder = [...pins.always, ...pins.whenOn];
+  return {
+    always: [...pins.always],
+    whenOn: [...pins.whenOn],
+    background: [...pinBackground(pins)],
+    ...(sameIds(order, defaultOrder) ? {} : { order }),
+  };
 }
 
 function emptyObservablePins(): AreaPins {
@@ -125,6 +162,8 @@ function floorBoolean(value: unknown): boolean {
 function departsFromDefault(entry: CacheEntry): boolean {
   if (entry.kind === "floor") return entry.expanded === false;
   if (entry.kind === "battery") return entry.mode !== "off";
+  if (entry.kind === "order") return Object.keys(entry.order).length > 0;
+  if (entry.kind === "background") return entry.bg.mode !== "light-tint";
   return entry.pins.always.length > 0 || entry.pins.whenOn.length > 0 || pinBackground(entry.pins).length > 0;
 }
 
@@ -157,10 +196,30 @@ function commitBattery(key: string, mode: BatteryMode): void {
   if (previous !== mode) notify(key);
 }
 
+function commitOrder(key: string, order: AreaEntityOrder): void {
+  const next = cloneEntityOrder(order);
+  const prev = cache.get(key);
+  if (prev?.kind === "order" && entityOrderEqual(prev.order, next)) return;
+  const previous = prev?.kind === "order" ? prev.order : {};
+  cache.set(key, { kind: "order", order: next });
+  if (!entityOrderEqual(previous, next)) notify(key);
+}
+
+function commitBackground(key: string, bg: AreaBackgroundMode): void {
+  const next: AreaBackgroundMode = { ...bg };
+  const prev = cache.get(key);
+  if (prev?.kind === "background" && areaBackgroundEqual(prev.bg, next)) return;
+  const previous: AreaBackgroundMode = prev?.kind === "background" ? prev.bg : { mode: "light-tint" };
+  cache.set(key, { kind: "background", bg: next });
+  if (!areaBackgroundEqual(previous, next)) notify(key);
+}
+
 function commitSent(key: string, value: unknown): void {
   if (isPinKey(key)) commitPins(key, parseAreaPins(value));
   else if (isFloorKey(key)) commitFloor(key, floorBoolean(value));
   else if (isBatteryKey(key)) commitBattery(key, parseBatteryMode(value));
+  else if (isOrderKey(key)) commitOrder(key, parseEntityOrder(value));
+  else if (isBackgroundKey(key)) commitBackground(key, parseAreaBackground(value));
 }
 
 function forget(key: string): void {
@@ -179,7 +238,7 @@ function isWriting(key: string): boolean {
  * are gone, except a key whose write is still in flight: its echo must not
  * put the previous pin cycle back.
  */
-function applyDocument(doc: Record<string, unknown>, gen: number): void {
+function applyDocument(doc: Record<string, unknown>, gen: number, migrateLegacyBackground: boolean): void {
   const seen = new Set<string>();
   for (const [key, raw] of Object.entries(doc)) {
     if (gen !== generation) return;
@@ -188,9 +247,26 @@ function applyDocument(doc: Record<string, unknown>, gen: number): void {
     if (isWriting(key)) continue;
     if (isPinKey(key)) commitPins(key, parseAreaPins(raw));
     else if (isBatteryKey(key)) commitBattery(key, parseBatteryMode(raw));
+    else if (isOrderKey(key)) commitOrder(key, parseEntityOrder(raw));
+    else if (isBackgroundKey(key)) commitBackground(key, parseAreaBackground(raw));
     else commitFloor(key, floorBoolean(raw));
   }
   if (gen !== generation) return;
+  if (migrateLegacyBackground) {
+    for (const [key, raw] of Object.entries(doc)) {
+      if (gen !== generation) return;
+      if (!isPinKey(key)) continue;
+      const areaId = key.slice(PINNED_KEY_PREFIX.length);
+      if (!areaId) continue;
+      const bgKey = backgroundModeKey(areaId);
+      if (seen.has(bgKey) || isWriting(bgKey)) continue;
+      const legacyCamera = legacyBackgroundCamera(raw);
+      if (legacyCamera) {
+        seen.add(bgKey);
+        commitBackground(bgKey, { mode: "camera", entityId: legacyCamera });
+      }
+    }
+  }
   for (const key of [...cache.keys()]) {
     if (seen.has(key) || isWriting(key)) continue;
     forget(key);
@@ -295,7 +371,7 @@ async function applySnapshot(value: unknown, api: FrontendHass, gen: number): Pr
   if (!doc) return;
   const migrate = !migrated;
   if (migrate) migrated = true;
-  applyDocument(doc, gen);
+  applyDocument(doc, gen, migrate);
   if (!migrate || gen !== generation) return;
   await migrateFromLocalStorage(doc, api, gen);
 }
@@ -527,6 +603,36 @@ export function cachedBatteryMode(areaId: string): BatteryMode {
 export function saveBatteryMode(hass: ClassifierHass, areaId: string, mode: BatteryMode): Promise<void> {
   return setValue(hassApi(hass), batteryModeKey(areaId), mode);
 }
+
+export function cachedEntityOrder(areaId: string): AreaEntityOrder {
+  const entry = cache.get(entityOrderKey(areaId));
+  if (!entry || entry.kind !== "order") return {};
+  return cloneEntityOrder(entry.order);
+}
+
+export function saveAreaEntityOrder(
+  hass: ClassifierHass,
+  areaId: string,
+  order: AreaEntityOrder,
+): Promise<void> {
+  return setValue(hassApi(hass), entityOrderKey(areaId), serializeEntityOrder(order));
+}
+
+export function cachedAreaBackground(areaId: string): AreaBackgroundMode {
+  const entry = cache.get(backgroundModeKey(areaId));
+  if (!entry || entry.kind !== "background") return { mode: "light-tint" };
+  return { ...entry.bg };
+}
+
+export function saveAreaBackground(
+  hass: ClassifierHass,
+  areaId: string,
+  bg: AreaBackgroundMode,
+): Promise<void> {
+  return setValue(hassApi(hass), backgroundModeKey(areaId), serializeAreaBackground(bg));
+}
+
+export { backgroundModeKey, entityOrderKey };
 
 export function subscribeUserData(listener: (key: string) => void): () => void {
   listeners.add(listener);

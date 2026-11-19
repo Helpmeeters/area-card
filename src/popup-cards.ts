@@ -1,3 +1,4 @@
+import { mergeEntityOrder, type AreaEntityOrder } from "./entity-order";
 import { kioskSatelliteCardType } from "./kiosk-card";
 import { stripRoomName } from "./names";
 import { pictureBackgroundStyles } from "./picture";
@@ -19,6 +20,7 @@ export interface PopupLayout {
    * Demo entities are not in Home Assistant, so a template round-trip cannot see them.
    */
   literalState?: boolean;
+  entityOrder?: AreaEntityOrder;
 }
 
 interface RowLayout {
@@ -26,6 +28,7 @@ interface RowLayout {
   measure?: LineMeasure;
   formatEntityState?: PopupLayout["formatEntityState"];
   literalState: boolean;
+  entityOrder?: AreaEntityOrder;
 }
 const LIGHT_ROW = "custom:area-card-light-row";
 const SECTION_TITLE = "custom:area-card-section-title";
@@ -213,22 +216,27 @@ function sectionBody(
       return sections.scripts.map((entity) =>
         commandCard(entity, states, roomName, rows, "script.turn_on", "mdi:script-text", "brown"),
       );
-    case "helpers":
-      return [
-        ...sections.selects.map((entity) =>
-          named(
-            {
-              type: mushroomCardType("select-card"),
+    case "helpers": {
+      const selectsSet = new Set(sections.selects);
+      const combined = mergeEntityOrder(
+        [...sections.selects, ...sections.helpers],
+        rows.entityOrder?.helpers,
+      );
+      return combined.map((entity) =>
+        selectsSet.has(entity)
+          ? named(
+              {
+                type: mushroomCardType("select-card"),
+                entity,
+                grid_options: gridFor(rows, entityTitle(entity, states, roomName), selectSecondaries(states[entity], rows)),
+              },
               entity,
-              grid_options: gridFor(rows, entityTitle(entity, states, roomName), selectSecondaries(states[entity], rows)),
-            },
-            entity,
-            states,
-            roomName,
-          ),
-        ),
-        ...sections.helpers.map((entity) => entityCard(entity, states, roomName, rows)),
-      ];
+              states,
+              roomName,
+            )
+          : entityCard(entity, states, roomName, rows),
+      );
+    }
     case "automations":
       return sections.automations.map((entity) =>
         automationCard(entity, states, roomName, rows, disabledAutomations.has(entity)),
@@ -391,7 +399,7 @@ function cameraCard(
       type: "picture-entity",
       entity,
       camera_image: entity,
-      camera_view: "auto",
+      camera_view: "live",
       show_name: true,
       show_state: true,
       aspect_ratio: "16:9",
@@ -685,6 +693,7 @@ function resolveLayout(layout?: PopupLayout): RowLayout {
     measure: layout?.measure,
     formatEntityState: layout?.formatEntityState,
     literalState: layout?.literalState === true,
+    entityOrder: layout?.entityOrder,
   };
 }
 

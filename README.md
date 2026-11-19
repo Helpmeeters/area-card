@@ -16,11 +16,11 @@ Each card requires only the selection of an Area or Floor (or nothing at all for
 ## Features
 
 - **Automatic Area Discovery** — Pick an area and the card reads its name, icon, picture, and assigned entities, building a `#area-<area_id>` popup organized by domain.
-- **Status Dots & Tooltips** — Fixed-slot section dots (`lights`, `media`, `cameras`, `switches`, `occupancy`, `openings`, `satellites`, `sensors`, `locks`, `vacuums`) with hover tooltips listing every row in that section.
-- **Subtitles & Unavailable Dimming** — Compact subtitle with temperature and humidity readings, helper counts, and automation summaries.
-- **Pinning & Live Camera Backgrounds** — Pin favorite entities under the area button (**Always** or **While on** with a 2-minute grace window), or use a camera's live stream as the card background.
+- **Status Dots & Tooltips** — Fixed-slot section dots (`lights`, `media`, `cameras`, `switches`, `openings`, `satellites`, `sensors`, `locks`, `vacuums`) with hover tooltips listing every row in that section.
+- **Subtitles & Presence Pill** — Compact subtitle with temperature and humidity readings, helper counts, and automation summaries, plus a presence pill (`Occupied`, relative last-seen, or `Clear`) on collapsed Area Cards and Floor headers with occupancy tooltips.
+- **Pinning & Card Backgrounds** — Pin favorite entities under the area button (**Always** or **While on** with a 2-minute grace window). Collapsed cards default to a live light-color averaging background (`Light tint`), with a separate **Card Background** selector in popup edit mode (`Light tint`, `Area picture`, or `Camera`).
 - **Battery Overlay** — Toggleable per-area battery percentage badges (**Off**, **Green**, **Yellow**, **Red**) synced per user across browsers.
-- **Floor & Floors Cards** — Collapsible **Floor Card** that aligns all areas on a floor and hides unused dot columns floor-wide, plus **Floors Card** to render every floor in registry order.
+- **Floor & Floors Cards** — Collapsible **Floor Card** with a rolled-up presence pill and median temperature and humidity in the floor header, dynamic presence sorting (`sort_by_presence`, default `true`), configurable `collapsed_areas` (`N`, default `0`) to keep the top `N` areas visible when collapsed, and floor-wide dot alignment — plus **Floors Card** to render every floor in registry order.
 
 ## Views
 
@@ -69,29 +69,33 @@ area: office_of_drew
 
 ### Floor Card (`custom:floor-card`)
 
-Displays a collapsible floor header with aggregated status dots and one **Area Card** per area on that floor, sorted alphabetically and aligned by dot column. Add **Floor Card** from the card picker and select a **Floor**.
+Displays a collapsible floor header with a rolled-up presence pill, median temperature/humidity, aggregated status dots, and one **Area Card** per area on that floor, aligned by dot column. Areas are sorted dynamically by presence by default (`sort_by_presence: true`), and up to `collapsed_areas` (`N`) top areas can remain visible when the floor is collapsed. Add **Floor Card** from the card picker and select a **Floor**.
 
 ```yaml
 type: custom:floor-card
 floor: downstairs
 ```
 
-| Option | Type | Required | Description |
-| --- | --- | --- | --- |
-| `type` | `string` | **Yes** | `custom:floor-card` |
-| `floor` | `string` | **Yes** | Floor ID from Home Assistant. |
+| Option | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `type` | `string` | **Yes** | — | `custom:floor-card` |
+| `floor` | `string` | **Yes** | — | Floor ID from Home Assistant. |
+| `sort_by_presence` | `boolean` | No | `true` | Sort areas dynamically by occupancy and recent presence. |
+| `collapsed_areas` | `number` | No | `0` | Number of top areas (`N`) to keep visible when the floor is collapsed. |
 
 ### Floors Card (`custom:floors-card`)
 
-Renders one **Floor Card** for every floor in Home Assistant, in the floor registry's order. The visual editor has no fields.
+Renders one **Floor Card** for every floor in Home Assistant, in the floor registry's order, with median climate headers, dynamic presence sorting, and optional collapsed top-N areas.
 
 ```yaml
 type: custom:floors-card
 ```
 
-| Option | Type | Required | Description |
-| --- | --- | --- | --- |
-| `type` | `string` | **Yes** | `custom:floors-card` |
+| Option | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `type` | `string` | **Yes** | — | `custom:floors-card` |
+| `sort_by_presence` | `boolean` | No | `true` | Sort areas dynamically by occupancy and recent presence on each floor. |
+| `collapsed_areas` | `number` | No | `0` | Number of top areas (`N`) to keep visible when a floor is collapsed. |
 
 ## Advanced Configuration
 
@@ -122,6 +126,12 @@ demo: true
 | --- | --- | --- | --- |
 | `hide_sections` | `list` | No | Section IDs to hide from both the collapsed card and the popup. |
 | `demo` | `boolean` | No | Fill the card from the built-in Demo Room instead of live Home Assistant entities. |
+
+## Acknowledgments & Inspiration
+
+- **[Advanced Room Card](https://github.com/Lawris/advanced-room-card)** by Lawris — inspiration for live light-color averaging backgrounds, presence badges, floor header median climate, and dynamic presence sorting with collapsed top-N areas.
+- **[Bubble Card](https://github.com/Clooos/Bubble-Card)** by Clooos — vendored UI foundation.
+- **[Mushroom](https://github.com/piitaya/lovelace-mushroom)** by piitaya — vendored entity and light cards.
 
 ## Bundled Dependencies
 

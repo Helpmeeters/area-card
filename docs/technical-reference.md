@@ -15,8 +15,16 @@ All three cards ship in one bundle (`area-card.js`), alongside prefixed vendor b
 ### Area Metadata & Pictures
 
 - Reads the area name, icon, and picture from Home Assistant's area registry, and opens a `#area-<area_id>` popup filled from entities assigned to that area.
-- Uses the area picture as the background of both the collapsed button and the popup. The popup photo fits the dialog width and sits at the top.
-- With pinned rows showing, the area picture is the cluster background and the pinned fills are clear; with none showing, it stays on the button. The popup photo is unchanged.
+- The popup photo uses the area picture, fits the dialog width, and sits at the top.
+- By default, the collapsed button uses a live light-color averaging background (`Light tint`). When configured to use `Area picture` or a `Camera` background, that background applies to the collapsed button (or to the cluster behind pinned rows when pinned rows are showing, leaving pinned fills clear); the popup photo remains the area picture.
+
+### Presence Pill
+
+- Collapsed Area Cards display a presence pill next to the room name derived from `sections.occupancy` (replacing the `occupancy` dot):
+  - Shows **`Occupied`** when any occupancy sensor in the area is active.
+  - Otherwise shows a **relative last-seen** timestamp (e.g., `5m ago`, `2h ago`) based on the most recent occupancy state change, or **`Clear`** when sensors exist without a recorded timestamp.
+  - Omitted when the area has no occupancy sensors or when `occupancy` is listed in `hide_sections`.
+  - Hovering or focusing the presence pill shows the `Occupancy` section tooltip (heading and every occupancy row from the popup).
 
 ### Unavailable Areas
 
@@ -45,18 +53,17 @@ Valid section IDs:
 
 ### Collapsed Dot Row
 
-The collapsed button keeps one 22px dot slot for every section except `climate`, `buttons`, `scenes`, `scripts`, `helpers`, and `automations`, in fixed order so stacked rooms line up:
+The collapsed button keeps one 22px dot slot for every section except `climate`, `occupancy`, `buttons`, `scenes`, `scripts`, `helpers`, and `automations`, in fixed order so stacked rooms line up:
 
 1. `lights`
 2. `media`
 3. `cameras`
 4. `switches`
-5. `occupancy`
-6. `openings`
-7. `satellites`
-8. `sensors`
-9. `locks`
-10. `vacuums`
+5. `openings`
+6. `satellites`
+7. `sensors`
+8. `locks`
+9. `vacuums`
 
 Each dot shows that section's icon:
 
@@ -135,28 +142,33 @@ Each popup section heading uses its section icon to the left of the title.
      - **Red**: hides green and yellow percentages (only red remains).
      - Battery source is the `battery` device-class sensor on that row's device, or the row's own `battery_level` attribute when absent.
      - Stored per area for the Home Assistant user across browsers.
-  2. **Pencil icon** (left of gear): toggles edit mode, adding a pin menu button to each entity row:
-     - **Hidden**, **Always**, **While on** (each menu row shows its icon and title).
-     - **Always**: keeps the row pinned under the collapsed area button.
-     - **While on**: shows the row only while that entity is on or playing, and for 2 minutes after it stops (a reload clears the 2-minute grace).
-     - **Use as area background** (cameras only): replaces the collapsed card background with that camera's muted, autoplaying, cover-cropped live video (no play button) and does not pin the camera as a row. The still stays visible until a frame renders; the area picture stays if the camera has no stream or playback fails. The popup photo stays the area picture. If multiple cameras have this choice, the first in the area's camera order supplies the video.
-     - Choices are stored per Home Assistant user and follow the user across browsers.
+  2. **Pencil icon** (left of gear): toggles edit mode, exposing:
+     - **Card Background** selector (per-area setting, persisted per Home Assistant user across browsers):
+       - **`Light tint`** *(default)*: live light-color averaging background on the collapsed card.
+       - **`Area picture`**: uses the area's registry picture as the collapsed card background.
+       - **`Camera: <name>`**: replaces the collapsed card background with that camera's muted, autoplaying, cover-cropped live video (no play button). The still stays visible until a frame renders; the area picture stays if the camera has no stream or playback fails. The popup photo stays the area picture.
+     - **Pin menu button** on each entity row with three options (**Hidden**, **Always**, **While on** — each showing its icon and title):
+       - **Always**: keeps the row pinned under the collapsed area button.
+       - **While on**: shows the row only while that entity is on or playing, and for 2 minutes after it stops (a reload clears the 2-minute grace).
+       - Choices are stored per Home Assistant user and follow the user across browsers.
   3. **Gear icon** (left of close): opens the area's settings page (`/config/areas/area/<area_id>`).
 
 ## Floor Card & Floors Card
 
 ### Floor Card (`custom:floor-card`)
 
-- Collapsible floor header with floor name, floor registry icon (omitted if none), rule, row of dots, and collapse control.
+- Collapsible floor header with floor name, floor registry icon (omitted if none), **presence pill** (rolled up across the floor's occupancy sensors, with an `Occupancy X/Y On` tooltip), **median climate** (median temperature and humidity across the floor's areas), rule, row of dots, and collapse control.
 - Clicking the header collapses or expands the card. Open/closed state is stored per Home Assistant user across browsers (defaults to expanded).
-- When expanded, shows one Area Card per area assigned to the floor, sorted alphabetically (including unavailable areas).
-- Header dots sit left of the collapse control and use the same slots as Area Cards (no `climate`, `buttons`, `scenes`, `scripts`, `helpers`, or `automations` column). A dot is filled if any area on the floor has that section active, hollow if present anywhere on the floor, and invisible otherwise. Tooltips show aggregated counts (e.g., `Lights 3/12 On`).
+- When expanded, shows one Area Card per area assigned to the floor (including unavailable areas).
+- **Dynamic presence sorting (`sort_by_presence`, default `true`)**: when enabled, orders areas by current occupancy first, then most recent presence/last-seen, falling back to alphabetical order. When `false`, sorts areas alphabetically.
+- **Collapsed top-N areas (`collapsed_areas`, default `0`)**: when the floor is collapsed and `collapsed_areas` (`N`) is greater than `0`, the top `N` areas (using the active sort order) remain visible beneath the collapsed header.
+- Header dots sit left of the collapse control and use the same slots as Area Cards (no `climate`, `occupancy`, `buttons`, `scenes`, `scripts`, `helpers`, or `automations` column). A dot is filled if any area on the floor has that section active, hollow if present anywhere on the floor, and invisible otherwise. Tooltips show aggregated counts (e.g., `Lights 3/12 On`).
 - Area cards on the floor shift their dots left by the width of the collapse control so columns align. On narrow headers, the floor name stays whole and dots leave from the left so remaining columns still align.
 - **Floor-wide section hiding**: sections absent on every area of the floor are hidden across all area cards on that floor so dot rows stay compact and aligned. Sections present on even one area stay visible on every area card of that floor.
 
 ### Floors Card (`custom:floors-card`)
 
-- Renders one Floor Card for every floor in Home Assistant, in the floor registry's order.
+- Renders one Floor Card for every floor in Home Assistant, in the floor registry's order, forwarding `sort_by_presence` (default `true`) and `collapsed_areas` (default `0`).
 - A floor with no areas still shows its header.
 - When Home Assistant has no floors, displays `"No floors"`.
 

@@ -7,8 +7,29 @@
  */
 export const BUBBLE_SHARED_STACK_TYPE = "custom:vertical-stack-in-card";
 
-export function floorRuntimeConfig(floor: string): { floor: string; type: typeof BUBBLE_SHARED_STACK_TYPE } {
-  return { floor, type: BUBBLE_SHARED_STACK_TYPE };
+export interface FloorRuntimeConfig {
+  floor: string;
+  type: typeof BUBBLE_SHARED_STACK_TYPE;
+  sortByPresence: boolean;
+  collapsedAreas: number;
+}
+
+export function floorRuntimeConfig(
+  floor: string,
+  options?: { sortByPresence?: boolean; collapsedAreas?: number },
+): FloorRuntimeConfig {
+  const sortByPresence = options?.sortByPresence !== false;
+  const rawCollapsed = options?.collapsedAreas;
+  const collapsedAreas =
+    typeof rawCollapsed === "number" && Number.isFinite(rawCollapsed)
+      ? Math.max(0, Math.floor(rawCollapsed))
+      : 0;
+  return {
+    floor,
+    type: BUBBLE_SHARED_STACK_TYPE,
+    sortByPresence,
+    collapsedAreas,
+  };
 }
 
 export const FLOOR_EXPANDED_KEY_PREFIX = "area-card-floor-expanded:";

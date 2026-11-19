@@ -26,7 +26,7 @@ export function emptyRollupDotClass(id: RollupId): string {
 }
 
 /** Collapsed button and floor-header dots. These sections stay in the popup and off the dot row. */
-const NO_DOT = new Set<RollupId>(["climate", "helpers", "automations", "buttons", "scenes", "scripts"]);
+const NO_DOT = new Set<RollupId>(["climate", "occupancy", "helpers", "automations", "buttons", "scenes", "scripts"]);
 
 export function collapsedDotSlots(hide: readonly RollupId[]): RollupId[] {
   return ROLLUP_ORDER.filter((id) => !NO_DOT.has(id) && !hide.includes(id));

@@ -1,3 +1,5 @@
+import type { AreaBackgroundMode } from "./background-mode";
+
 /** Cover image for the button, the pinned cluster, and the popup. */
 export type PicturePlacement = "none" | "button" | "cluster";
 
@@ -277,6 +279,28 @@ export function collapsedCardPicture(
     still: imageOf(id),
   }));
   return choice.still ?? choice.area;
+}
+
+/** Chosen camera entity id when `bgMode` is `"camera"` and that camera is in the area. */
+export function backgroundCameraId(
+  bgMode: AreaBackgroundMode,
+  camerasInAreaOrder: readonly string[],
+): string | null {
+  if (bgMode.mode !== "camera") return null;
+  return firstBackgroundCamera(camerasInAreaOrder, [bgMode.entityId]);
+}
+
+/** Collapsed card still/picture resolved according to `AreaBackgroundMode`. */
+export function collapsedPictureForMode(
+  bgMode: AreaBackgroundMode,
+  areaPicture: string | null | undefined,
+  camerasInAreaOrder: readonly string[],
+  imageOf: (entityId: string) => string | null | undefined,
+): string | null {
+  if (bgMode.mode === "light-tint") return null;
+  const area = typeof areaPicture === "string" && areaPicture.length > 0 ? areaPicture : null;
+  if (bgMode.mode === "area-picture") return area;
+  return collapsedCardPicture(area, camerasInAreaOrder, [bgMode.entityId], imageOf);
 }
 
 export type CameraPictureLoad = "pending" | "loaded" | "failed";
