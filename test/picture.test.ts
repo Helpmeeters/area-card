@@ -160,6 +160,8 @@ describe("picture placement", () => {
 
   it("clears the button's own photo and corner fill while the cluster is showing", () => {
     const css = buttonPictureSuppressStyles();
+    assert.match(css, /:host\s*\{[^}]*--ha-card-background:\s*transparent/);
+    assert.match(css, /:host\s*\{[^}]*--bubble-main-background-color:\s*transparent/);
     assert.match(css, /\.bubble-background\s*\{[^}]*background-image:\s*none !important/);
     assert.match(css, /\.bubble-container\s*\{[^}]*background-color:\s*transparent !important/);
     assert.match(css, /ha-card\s*\{[^}]*background:\s*transparent !important/);
@@ -179,6 +181,8 @@ describe("picture placement", () => {
     assert.match(css, /background:\s*transparent !important/);
     assert.match(css, /--card-primary-color:\s*#fff/);
     assert.match(css, /--ha-card-background:\s*transparent/);
+    assert.match(css, /--mush-chip-background:\s*transparent/);
+    assert.match(css, /--bubble-main-background-color:\s*transparent/);
     assert.match(css, /text-shadow:\s*0 1px 2px rgba\(0,0,0,\.65\)/);
     assert.match(css, /area-card-mushroom-state-info[\s\S]*background:\s*transparent !important/);
     assert.match(css, /--shape-color:\s*rgba\(255,255,255,0\.1\) !important/);

@@ -52,6 +52,7 @@ export interface ClassifierHass {
   areas?: Record<string, AreaEntry>;
   floors?: Record<string, FloorEntry>;
   hassUrl?: (path: string) => string;
+  themes?: { darkMode?: boolean };
   callWS?: (message: { type: string; entity_id?: string }) => Promise<unknown>;
   formatEntityState?: (stateObj: EntityState, state?: string) => string;
   callService?: (

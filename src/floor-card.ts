@@ -17,6 +17,7 @@ import {
   type RollupId,
 } from "./rollups";
 import { classifyArea, type AreaSections, type ClassifierHass } from "./sections";
+import { syncCardThemeFallback } from "./theme";
 import { cachedFloorExpanded, ensureUserData, saveFloorExpanded, subscribeUserData } from "./user-data";
 
 interface FloorCardConfig {
@@ -110,11 +111,13 @@ class FloorCard extends HTMLElement {
 
   set hass(value: ClassifierHass) {
     this._hass = value;
+    syncCardThemeFallback(this, value);
     this.schedule();
   }
 
   connectedCallback(): void {
     this.style.display = "block";
+    syncCardThemeFallback(this, this._hass);
     this.unsubscribeUserData?.();
     this.unsubscribeUserData = subscribeUserData((key: string) => {
       const floorId = this._config?.floor;

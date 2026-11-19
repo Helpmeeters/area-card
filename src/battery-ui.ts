@@ -1,10 +1,12 @@
 import {
   BATTERY_LEVEL_COLOR,
   buildBatteryIndex,
+  parseBatteryMode,
   shownBattery,
   type BatteryMode,
   type BatteryReading,
 } from "./battery";
+import { hideAreaDotTooltip, showAreaDotTooltip } from "./dot-tooltip";
 import { pinEntityId } from "./pinned-entities";
 import type { ClassifierHass } from "./sections";
 import { BUBBLE_CARDS_GRID } from "./tags";
@@ -12,11 +14,11 @@ import { BUBBLE_CARDS_GRID } from "./tags";
 const STYLE_ID = "area-card-battery-style";
 const LIGHT_ROW = "custom:area-card-light-row";
 
-const MENU: ReadonlyArray<{ mode: BatteryMode; label: string; icon: string }> = [
-  { mode: "off", label: "Off", icon: "mdi:battery-off" },
-  { mode: "green", label: "Green", icon: "mdi:battery" },
-  { mode: "yellow", label: "Yellow", icon: "mdi:battery-50" },
-  { mode: "red", label: "Red", icon: "mdi:battery-alert" },
+const MENU: ReadonlyArray<{ mode: BatteryMode; label: string; description: string; icon: string }> = [
+  { mode: "off", label: "Off", description: "Hide battery percentages", icon: "mdi:battery-off" },
+  { mode: "green", label: "Green", description: "Show all (70%+ and lower)", icon: "mdi:battery" },
+  { mode: "yellow", label: "Yellow", description: "Show below 70% (yellow & red)", icon: "mdi:battery-50" },
+  { mode: "red", label: "Red", description: "Show below 30% (red only)", icon: "mdi:battery-alert" },
 ];
 
 interface BatteryButton extends HTMLButtonElement {
@@ -30,12 +32,23 @@ interface BatteryMenu extends HTMLElement {
 
 let nextMenuId = 0;
 
+export function batteryButtonLabel(mode: BatteryMode): string {
+  const choice = MENU.find((item) => item.mode === mode) ?? MENU[0];
+  return `Battery percentages: ${choice.label} — ${choice.description}`;
+}
+
+export function batteryTooltipText(mode: BatteryMode): string {
+  const choice = MENU.find((item) => item.mode === mode) ?? MENU[0];
+  return `Battery percentages: ${choice.label}\n${choice.description}`;
+}
+
 /** Header button and its menu. The menu is appended to the button's root when the button is placed. */
 export function createBatteryButton(onSelect: (mode: BatteryMode) => void): HTMLButtonElement {
   const button = document.createElement("button") as BatteryButton;
   button.type = "button";
   button.className = "bubble-header-action-button area-card-battery";
-  button.setAttribute("aria-label", "Battery percentages");
+  button.dataset.mode = "off";
+  button.setAttribute("aria-label", batteryButtonLabel("off"));
   button.setAttribute("aria-haspopup", "menu");
   button.setAttribute("aria-expanded", "false");
   button.style.padding = "0";
@@ -54,13 +67,32 @@ export function createBatteryButton(onSelect: (mode: BatteryMode) => void): HTML
   menu.setAttribute("aria-label", "Battery percentages");
   menu.dataset.open = "false";
   button.setAttribute("aria-controls", menu.id);
-  for (const option of MENU) menu.append(menuOption(option.mode, option.label, option.icon));
+  const title = document.createElement("div");
+  title.className = "area-card-battery-menu-title";
+  title.setAttribute("role", "presentation");
+  title.textContent = "Battery percentages";
+  menu.append(title);
+  for (const option of MENU) menu.append(menuOption(option.mode, option.label, option.description, option.icon));
   button.batteryMenu = menu;
   button.batterySelect = onSelect;
 
-  button.addEventListener("pointerdown", (event) => event.stopPropagation());
+  button.addEventListener("pointerenter", () => {
+    if (menuIsOpen(menu)) return;
+    showAreaDotTooltip(button, batteryTooltipText(parseBatteryMode(button.dataset.mode)));
+  });
+  button.addEventListener("pointerleave", hideAreaDotTooltip);
+  button.addEventListener("focus", () => {
+    if (menuIsOpen(menu)) return;
+    showAreaDotTooltip(button, batteryTooltipText(parseBatteryMode(button.dataset.mode)));
+  });
+  button.addEventListener("blur", hideAreaDotTooltip);
+  button.addEventListener("pointerdown", (event) => {
+    event.stopPropagation();
+    hideAreaDotTooltip();
+  });
   button.addEventListener("click", (event) => {
     event.stopPropagation();
+    hideAreaDotTooltip();
     const open = menuIsOpen(menu);
     if (open) hideMenu(button, menu);
     else showMenu(button, menu);
@@ -94,6 +126,7 @@ export function syncBatteryButton(button: HTMLButtonElement, mode: BatteryMode):
     icon.style.color = mode === "off" ? "" : BATTERY_LEVEL_COLOR[mode];
   }
   button.dataset.mode = mode;
+  button.setAttribute("aria-label", batteryButtonLabel(mode));
   const menu = host.batteryMenu;
   if (!menu) return;
   for (const option of menu.querySelectorAll<HTMLElement>(".area-card-battery-option")) {
@@ -121,8 +154,9 @@ export function syncBatteryReadouts(
     const entityId = entityIdOf(cell);
     applyReadout(cell, entityId ? shownBattery(index, hass, entityId, mode) : null, false);
   }
-  for (const card of root.querySelectorAll("[data-pin-entity]")) {
+  for (const card of root.querySelectorAll("[data-pin-entity]:not(.area-card-pin-switch)")) {
     if (!(card instanceof HTMLElement)) continue;
+    if (card.classList.contains("area-card-pin-switch")) continue;
     const entityId = card.dataset.pinEntity ?? "";
     const reading = entityId ? shownBattery(index, hass, entityId, mode) : null;
     applyReadout(card, reading, ledInset(card));
@@ -141,6 +175,7 @@ export function batteryChromeStyles(): string {
     "}",
     ".area-card-battery-readout {",
     "  flex: 0 0 auto;",
+    "  align-self: flex-start;",
     "  margin: 18px 12px 0 4px;",
     "  font-size: 13px;",
     "  font-weight: 700;",
@@ -148,17 +183,17 @@ export function batteryChromeStyles(): string {
     "  line-height: 18px;",
     "  pointer-events: none;",
     "}",
-    "[data-pin-entity] {",
+    "[data-pin-entity]:not(.area-card-pin-switch) {",
     "  position: relative;",
     "}",
-    "[data-pin-entity] > .area-card-battery-readout {",
+    "[data-pin-entity]:not(.area-card-pin-switch) > .area-card-battery-readout {",
     "  position: absolute;",
     "  top: 18px;",
     "  right: 12px;",
     "  z-index: 2;",
     "  margin: 0;",
     "}",
-    '[data-pin-entity] > .area-card-battery-readout[data-inset="led"] {',
+    '[data-pin-entity]:not(.area-card-pin-switch) > .area-card-battery-readout[data-inset="led"] {',
     "  right: 40px;",
     "}",
     ".area-card-battery-menu {",
@@ -173,6 +208,12 @@ export function batteryChromeStyles(): string {
     "  background: var(--card-background-color, var(--primary-background-color, var(--ha-card-background)));",
     "  color: var(--primary-text-color);",
     "  box-shadow: var(--ha-card-box-shadow, 0 4px 16px rgba(0, 0, 0, 0.28));",
+    "}",
+    ".area-card-battery-menu-title {",
+    "  padding: 6px 12px 4px;",
+    "  font-size: 12px;",
+    "  font-weight: 600;",
+    "  color: var(--secondary-text-color);",
     "}",
     ".area-card-battery-option {",
     "  display: flex;",
@@ -193,6 +234,16 @@ export function batteryChromeStyles(): string {
     "  cursor: pointer;",
     "  box-sizing: border-box;",
     "}",
+    ".area-card-battery-option-text {",
+    "  display: flex;",
+    "  flex-direction: column;",
+    "  gap: 1px;",
+    "}",
+    ".area-card-battery-option-desc {",
+    "  font-size: 12px;",
+    "  line-height: 16px;",
+    "  color: var(--secondary-text-color);",
+    "}",
     ".area-card-battery-option ha-icon {",
     "  flex: 0 0 auto;",
     "  --mdc-icon-size: 24px;",
@@ -207,7 +258,7 @@ export function batteryChromeStyles(): string {
   ].join("\n");
 }
 
-function menuOption(mode: BatteryMode, label: string, iconName: string): HTMLButtonElement {
+function menuOption(mode: BatteryMode, label: string, description: string, iconName: string): HTMLButtonElement {
   const option = document.createElement("button");
   option.type = "button";
   option.className = "area-card-battery-option";
@@ -218,9 +269,15 @@ function menuOption(mode: BatteryMode, label: string, iconName: string): HTMLBut
   icon.setAttribute("icon", iconName);
   icon.setAttribute("aria-hidden", "true");
   if (mode !== "off") icon.style.color = BATTERY_LEVEL_COLOR[mode];
+  const textWrap = document.createElement("span");
+  textWrap.className = "area-card-battery-option-text";
   const text = document.createElement("span");
   text.textContent = label;
-  option.append(icon, text);
+  const desc = document.createElement("span");
+  desc.className = "area-card-battery-option-desc";
+  desc.textContent = description;
+  textWrap.append(text, desc);
+  option.append(icon, textWrap);
   return option;
 }
 

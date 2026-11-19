@@ -27,6 +27,7 @@ import {
 } from "./camera-video";
 import { hideAreaDotTooltip, syncAreaDotTooltips, type DotTooltipSource } from "./dot-tooltip";
 import { ensureDeps } from "./ensure-deps";
+import { syncCardThemeFallback } from "./theme";
 import "./floor-card";
 import "./floors-card";
 import "./light-row";
@@ -361,6 +362,7 @@ class AreaCard extends HTMLElement {
    */
   private adoptHass(value: ClassifierHass): void {
     this._rawHass = value;
+    syncCardThemeFallback(this, value);
     const targets: { hass?: ClassifierHass }[] = [];
     if (this.buttonEl) targets.push(this.buttonEl);
     if (this.popupEl) targets.push(this.popupEl);
@@ -369,6 +371,7 @@ class AreaCard extends HTMLElement {
 
   connectedCallback(): void {
     this.style.display = "block";
+    syncCardThemeFallback(this, this._rawHass);
     this.addEventListener("hass-more-info", this.stopDemoBackend);
     this.addEventListener("hass-action", this.stopDemoBackend);
     window.addEventListener("resize", this.onResize);
@@ -400,6 +403,7 @@ class AreaCard extends HTMLElement {
     this.pinStickyTimer = 0;
     this.stopDotTooltipWatch();
     this.stopAreaEditWatch();
+    this.pinEditing = false;
     hideAreaDotTooltip();
   }
 
@@ -488,6 +492,8 @@ class AreaCard extends HTMLElement {
       this.popupEl?.remove();
       this.buttonEl = document.createElement(BUBBLE_ELEMENT) as BubbleElement;
       this.popupEl = document.createElement(BUBBLE_ELEMENT) as BubbleElement;
+      Object.defineProperty(this.popupEl, "detectedEditor", { get: () => false, configurable: true });
+      Object.defineProperty(this.popupEl, "inEditorPreview", { get: () => false, configurable: true });
       // Bubble's host is inline-block. The closed popup is 0px tall and still
       // wraps onto a line box under the button, which shows up as extra padding.
       this.buttonEl.style.display = "block";
@@ -607,6 +613,10 @@ class AreaCard extends HTMLElement {
     const root = this.popupEl?.shadowRoot;
     const areaId = this.editAreaId;
     if (!root || !areaId) return;
+    const popup = root.querySelector(".bubble-pop-up");
+    if (this.pinEditing && !popup?.classList.contains("is-popup-opened")) {
+      this.pinEditing = false;
+    }
     const actions = root.querySelector(".bubble-header-actions");
     if (actions) {
       const battery = this.headerButton(actions, ".area-card-battery", this.batteryEl, () => this.batteryButton());

@@ -139,7 +139,7 @@ There is no GitHub Actions workflow. `dist/` is gitignored and is uploaded only 
 
 1. `git fetch origin` and rebase onto `origin/main` before editing. Another agent may be releasing.
 2. Change `src/` and `test/`. Run `npm test`. `npm run build` refreshes the prefixed vendor copies and writes `dist/area-card.js`, `dist/area-card-bubble.js`, and `dist/area-card-mushroom.js`.
-3. Bump `package.json` version. Commit only the files for this change. Leave `.gstack/`, `.env`, `dist/`, and unrelated `.gitignore` edits unstaged.
+3. Bump `package.json` version on the **`0.1.x`** line (e.g., `0.1.35` → `0.1.36`). Do NOT bump to `1.0.x`, even though historical `v1.0.0`–`v1.0.35` tags sort higher under `git tag --sort=-v:refname`. Check `git tag -l 'v0.1.*' --sort=-v:refname | head -n 1` and `package.json`. Commit only the files for this change. Leave `.gstack/`, `.env`, `dist/`, and unrelated `.gitignore` edits unstaged.
 4. Push, then:
 
 ```bash
