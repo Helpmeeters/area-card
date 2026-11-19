@@ -1,3 +1,4 @@
+import { CAMERA_ROW_TAG } from "./camera-detections";
 import { syncAutomationSubtitle } from "./automation-subtitle";
 import { areaBackgroundEqual, type AreaBackgroundMode } from "./background-mode";
 import { createBatteryButton, syncBatteryButton, syncBatteryReadouts } from "./battery-ui";
@@ -29,6 +30,14 @@ import {
 } from "./camera-video";
 import { hideAreaDotTooltip, syncAreaDotTooltips, syncPresencePillTooltip, type DotTooltipSource } from "./dot-tooltip";
 import { ensureDeps } from "./ensure-deps";
+import {
+  cachedEventsMap,
+  ensureFrigateEvents,
+  getFrigateCameraRefs,
+  selectAreaPresenceIdentities,
+  subscribeFrigateEvents,
+  type AreaIdentitySummary,
+} from "./frigate-identity";
 import { syncCardThemeFallback } from "./theme";
 import "./floor-card";
 import "./floors-card";
@@ -168,14 +177,14 @@ function pinnedInnerHosts(card: HTMLElement): HTMLElement[] {
       if (
         child.localName === "area-card-light-row" ||
         child.localName === "area-card-device-row" ||
-        child.localName === "area-card-camera-row"
+        child.localName === CAMERA_ROW_TAG
       ) {
         const queue: HTMLElement[] = [child];
         while (queue.length > 0) {
           const parent = queue.shift()!;
           for (const nested of parent.children) {
             if (!(nested instanceof HTMLElement)) continue;
-            if (nested.localName === "area-card-device-row" || nested.localName === "area-card-camera-row" || nested.localName === "hui-card") {
+            if (nested.localName === "area-card-device-row" || nested.localName === CAMERA_ROW_TAG || nested.localName === "hui-card") {
               if (nested.localName !== "hui-card") hosts.push(nested);
               queue.push(nested);
             } else if (nested.localName.includes("-")) {
@@ -194,7 +203,7 @@ function pinnedChromeReady(card: HTMLElement): boolean {
     (host) =>
       host.localName !== "area-card-light-row" &&
       host.localName !== "area-card-device-row" &&
-      host.localName !== "area-card-camera-row",
+      host.localName !== CAMERA_ROW_TAG,
   );
   if (hosts.length === 0) return false;
   return hosts.every((host) => host.shadowRoot?.querySelector("ha-card"));
@@ -247,7 +256,7 @@ function applyPinnedSideBySide(card: HTMLElement, follow = true): void {
     if (
       host.localName === "area-card-light-row" ||
       host.localName === "area-card-device-row" ||
-      host.localName === "area-card-camera-row"
+      host.localName === CAMERA_ROW_TAG
     ) continue;
     const root = host.shadowRoot;
     if (!root) continue;
@@ -283,7 +292,7 @@ function pinnedSplitApplied(card: HTMLElement): boolean {
     (host) =>
       host.localName !== "area-card-light-row" &&
       host.localName !== "area-card-device-row" &&
-      host.localName !== "area-card-camera-row",
+      host.localName !== CAMERA_ROW_TAG,
   );
   if (hosts.length === 0) return false;
   return hosts.some((host) => {
@@ -312,6 +321,9 @@ class AreaCard extends HTMLElement {
   private queued = false;
   private dotRollups: SectionRollup[] = [];
   private dotTooltipSource?: DotTooltipSource;
+  private presenceIdentity: AreaIdentitySummary | null = null;
+  private unsubscribeFrigate?: () => void;
+  private frigateInstanceKey?: string;
   private tooltipHost?: HTMLElement;
   private tooltipObserver?: MutationObserver;
   private tooltipFrame = 0;
@@ -464,6 +476,9 @@ class AreaCard extends HTMLElement {
     this.stopCameraVideo();
     this.unsubscribeUserData?.();
     this.unsubscribeUserData = undefined;
+    this.unsubscribeFrigate?.();
+    this.unsubscribeFrigate = undefined;
+    this.frigateInstanceKey = undefined;
     window.removeEventListener("resize", this.onResize);
     window.clearTimeout(this.resizeTimer);
     window.clearTimeout(this.pinStickyTimer);
@@ -543,6 +558,35 @@ class AreaCard extends HTMLElement {
     const signature = membershipKey(areaId, name, icon, sections);
     this.entityScopes = entityScopeMap(visibleSections);
     this.dotRollups = view.rollups;
+    const frigateRefs = demo ? [] : getFrigateCameraRefs(visibleSections.cameras, states);
+    if (frigateRefs.length > 0) {
+      const instanceIds = [...new Set(frigateRefs.map((r) => r.instanceId))].sort();
+      const instanceKey = instanceIds.join(",");
+      if (this.frigateInstanceKey !== instanceKey) {
+        this.unsubscribeFrigate?.();
+        this.frigateInstanceKey = instanceKey;
+        this.unsubscribeFrigate = subscribeFrigateEvents(instanceIds, () => {
+          this.schedule();
+        });
+      }
+      const triggerKey = visibleSections.occupancy
+        .map((o) => `${o.entityId}:${states[o.entityId]?.state ?? ""}`)
+        .join("|");
+      ensureFrigateEvents(hass, frigateRefs, triggerKey);
+      this.presenceIdentity = selectAreaPresenceIdentities(
+        cachedEventsMap(frigateRefs),
+        frigateRefs,
+        visibleSections.occupancy,
+        states,
+      );
+    } else {
+      if (this.unsubscribeFrigate) {
+        this.unsubscribeFrigate();
+        this.unsubscribeFrigate = undefined;
+        this.frigateInstanceKey = undefined;
+      }
+      this.presenceIdentity = null;
+    }
     this.dotTooltipSource = {
       sections: visibleSections,
       states,
@@ -551,6 +595,7 @@ class AreaCard extends HTMLElement {
       hass,
       disabledAutomations: disabled,
       literalState: demo,
+      presenceIdentity: this.presenceIdentity,
     };
     this.buttonInput = view.buttonInput;
     const buttonConfig = view.button;
@@ -674,7 +719,33 @@ class AreaCard extends HTMLElement {
       pill.tabIndex = 0;
       row.append(pill);
     }
-    if (pill.textContent !== badge.text) pill.textContent = badge.text;
+    let textEl = pill.querySelector(":scope > .area-card-presence-text");
+    if (!(textEl instanceof HTMLSpanElement)) {
+      textEl = document.createElement("span");
+      textEl.className = "area-card-presence-text";
+      pill.prepend(textEl);
+    }
+    const singleOccupiedName =
+      this.presenceIdentity && this.presenceIdentity.occupied && this.presenceIdentity.names.length === 1
+        ? this.presenceIdentity.names[0]
+        : null;
+    const pillText = singleOccupiedName ?? badge.text;
+    if (textEl.textContent !== pillText) textEl.textContent = pillText;
+    const hasIdentity = Boolean(this.presenceIdentity && this.presenceIdentity.names.length > 0);
+    const existingIdentityEl = pill.querySelector(":scope > .area-card-presence-identity");
+    if (hasIdentity) {
+      pill.dataset.hasIdentity = "1";
+      if (!existingIdentityEl) {
+        const iconEl = document.createElement("ha-icon");
+        iconEl.className = "area-card-presence-identity";
+        iconEl.setAttribute("icon", "mdi:face-recognition");
+        iconEl.setAttribute("aria-hidden", "true");
+        pill.append(iconEl);
+      }
+    } else {
+      delete pill.dataset.hasIdentity;
+      existingIdentityEl?.remove();
+    }
     const occupiedFlag = badge.occupied ? "1" : "0";
     if (pill.dataset.occupied !== occupiedFlag) pill.dataset.occupied = occupiedFlag;
     syncPresencePillTooltip(pill, this.dotTooltipSource);

@@ -1,5 +1,15 @@
-import { computeCameraDetectionBadges } from "./camera-detections";
+import { CAMERA_ROW_TAG, computeCameraDetectionBadges } from "./camera-detections";
 import { hideAreaDotTooltip, showAreaDotTooltip } from "./dot-tooltip";
+import {
+  countUnreviewedFrigateItems,
+  ensureFrigateEvents,
+  frigateReviewQueueUrl,
+  getCachedFrigateEvents,
+  getCachedFrigateReviews,
+  getFrigateCameraRef,
+  selectCameraPersonIdentities,
+  subscribeFrigateEvents,
+} from "./frigate-identity";
 import type { CameraDetection, ClassifierHass } from "./sections";
 
 interface CameraRowConfig {
@@ -22,6 +32,8 @@ class AreaCardCameraRow extends HTMLElement {
   private overlayEl?: HTMLDivElement;
   private reviewOverlayEl?: HTMLDivElement;
   private cardConfigKey?: string;
+  private unsubscribeFrigate?: () => void;
+  private frigateInstanceId?: string;
 
   createRenderRoot(): HTMLElement {
     return this;
@@ -56,6 +68,12 @@ class AreaCardCameraRow extends HTMLElement {
     this.mount();
   }
 
+  disconnectedCallback(): void {
+    this.unsubscribeFrigate?.();
+    this.unsubscribeFrigate = undefined;
+    this.frigateInstanceId = undefined;
+  }
+
   private mount(): void {
     const card = this.config?.card;
     if (!card || typeof card !== "object") return;
@@ -84,7 +102,43 @@ class AreaCardCameraRow extends HTMLElement {
       return;
     }
     const overlay = this.ensureOverlay();
-    const badges = computeCameraDetectionBadges(detections, this._hass?.states ?? {});
+    const states = this._hass?.states ?? {};
+    const cameraEntityId = typeof this.config?.card?.entity === "string" ? this.config.card.entity : "";
+    const frigateRef = cameraEntityId ? getFrigateCameraRef(cameraEntityId, states) : null;
+    if (frigateRef) {
+      if (this.frigateInstanceId !== frigateRef.instanceId) {
+        this.unsubscribeFrigate?.();
+        this.frigateInstanceId = frigateRef.instanceId;
+        this.unsubscribeFrigate = subscribeFrigateEvents([frigateRef.instanceId], () => {
+          this.paintOverlay();
+        });
+      }
+      const personCls = detections.classes.find((c) => c.name === "person");
+      const occState = personCls?.occupancyEntityId ? states[personCls.occupancyEntityId] : undefined;
+      const countState = personCls?.countEntityId ? states[personCls.countEntityId] : undefined;
+      const triggerKey = `${frigateRef.cameraName}:${occState?.state ?? ""}:${countState?.state ?? ""}`;
+      ensureFrigateEvents(this._hass, [frigateRef], triggerKey);
+    } else if (this.unsubscribeFrigate) {
+      this.unsubscribeFrigate();
+      this.unsubscribeFrigate = undefined;
+      this.frigateInstanceId = undefined;
+    }
+
+    const personCls = detections.classes.find((c) => c.name === "person");
+    const personOccState = personCls?.occupancyEntityId ? states[personCls.occupancyEntityId] : undefined;
+    const occChangedRaw =
+      (personOccState as { last_changed?: string } | undefined)?.last_changed ?? personOccState?.last_updated;
+    const occChangedMs = typeof occChangedRaw === "string" ? Date.parse(occChangedRaw) : NaN;
+    const personNames = frigateRef
+      ? selectCameraPersonIdentities(getCachedFrigateEvents(frigateRef.instanceId), frigateRef.cameraName, {
+          occupancyLastChangedMs: Number.isFinite(occChangedMs) ? occChangedMs : null,
+        })
+      : [];
+    const unreviewedCount = frigateRef
+      ? countUnreviewedFrigateItems(getCachedFrigateReviews(frigateRef.instanceId), frigateRef.cameraName)
+      : 0;
+
+    const badges = computeCameraDetectionBadges(detections, states, { personNames, unreviewedCount });
 
     const totalEl = document.createElement("span");
     totalEl.className = "area-card-camera-badge area-card-camera-total";
@@ -119,6 +173,25 @@ class AreaCardCameraRow extends HTMLElement {
         countSpan.textContent = cls.countText;
         el.append(countSpan);
       }
+      if (cls.hasIdentity) {
+        el.dataset.hasIdentity = "true";
+        el.style.position = "relative";
+        const dot = document.createElement("span");
+        dot.className = "area-card-camera-identity-dot";
+        dot.setAttribute("aria-hidden", "true");
+        Object.assign(dot.style, {
+          position: "absolute",
+          top: "-2px",
+          right: "-2px",
+          width: "7px",
+          height: "7px",
+          borderRadius: "999px",
+          background: "#4ade80",
+          boxShadow: "0 0 0 1.5px rgba(0, 0, 0, 0.7)",
+          pointerEvents: "none",
+        });
+        el.append(dot);
+      }
       this.bindBadgeInteractions(el, cls.title);
       nodes.push(el);
     }
@@ -149,7 +222,9 @@ class AreaCardCameraRow extends HTMLElement {
         textSpan.textContent = rev.text;
         el.append(textSpan);
       }
-      this.bindBadgeInteractions(el, rev.title);
+      this.bindBadgeInteractions(el, rev.title, frigateRef ? () => {
+        window.open(frigateReviewQueueUrl(), "_blank", "noopener");
+      } : undefined);
       reviewOverlay.replaceChildren(el);
     } else {
       this.reviewOverlayEl?.remove();
@@ -157,13 +232,18 @@ class AreaCardCameraRow extends HTMLElement {
     }
   }
 
-  private bindBadgeInteractions(badge: HTMLElement, tip: string): void {
+  private bindBadgeInteractions(badge: HTMLElement, tip: string, onClick?: () => void): void {
     badge.setAttribute("aria-label", tip);
     badge.addEventListener("pointerenter", () => showAreaDotTooltip(badge, tip));
     badge.addEventListener("pointerleave", hideAreaDotTooltip);
     badge.addEventListener("pointerdown", hideAreaDotTooltip);
     badge.addEventListener("click", (event) => {
       hideAreaDotTooltip();
+      if (onClick) {
+        event.stopPropagation();
+        onClick();
+        return;
+      }
       const entityId = this.config?.card?.entity;
       if (typeof entityId !== "string" || !entityId) return;
       event.stopPropagation();
@@ -240,6 +320,6 @@ function badgeBaseStyle(active: boolean): Partial<CSSStyleDeclaration> {
   };
 }
 
-if (!customElements.get("area-card-camera-row")) {
-  customElements.define("area-card-camera-row", AreaCardCameraRow);
+if (!customElements.get(CAMERA_ROW_TAG)) {
+  customElements.define(CAMERA_ROW_TAG, AreaCardCameraRow);
 }

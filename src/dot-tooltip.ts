@@ -1,7 +1,8 @@
 import { eventTargetsDemoEntity } from "./demo";
-import { sectionPopupCards } from "./popup-cards";
+import type { AreaIdentitySummary } from "./frigate-identity";
+import { pairHalfWidthCards, sectionPopupCards } from "./popup-cards";
 import { visibleDotRollupId, type RollupId } from "./rollups";
-import { popupOuterWidth } from "./row-width";
+import { popupOuterWidth, readViewportWidth, rowColumns } from "./row-width";
 import type { AreaSections, ClassifierHass, EntityState } from "./sections";
 
 export interface DotTooltipSource {
@@ -13,6 +14,7 @@ export interface DotTooltipSource {
   disabledAutomations?: ReadonlySet<string>;
   /** Demo rows already have a title and state, so the tooltip must not send those templates to Home Assistant. */
   literalState?: boolean;
+  presenceIdentity?: AreaIdentitySummary | null;
 }
 
 export interface SectionTooltip {
@@ -251,6 +253,14 @@ export function showAreaDotTooltip(target: HTMLElement, content: string | Sectio
   }
 }
 
+export function refreshOpenTooltipTarget(
+  target: HTMLElement,
+  content: string | SectionTooltip,
+): void {
+  if (!tipEl?.matches(":popover-open") || anchorEl !== target) return;
+  showAreaDotTooltip(target, content);
+}
+
 /** Card tooltips wait briefly so the pointer can cross the gap onto the tooltip. */
 export function dismissAreaDotTooltip(): void {
   window.clearTimeout(hideTimer);
@@ -298,6 +308,21 @@ export function sectionTooltipCards(
       literalState: source.literalState,
     },
   );
+  if (id === "occupancy" && cards.length > 0 && source.presenceIdentity && source.presenceIdentity.names.length > 0) {
+    const primary = source.presenceIdentity.occupied ? "Recognized" : "Last recognized";
+    const secondary = source.presenceIdentity.names.join(", ");
+    const identityCard: Record<string, unknown> = {
+      type: "custom:area-card-mushroom-template-card",
+      primary,
+      secondary,
+      icon: "mdi:face-recognition",
+      icon_color: source.presenceIdentity.occupied ? "blue" : "grey",
+      tap_action: { action: "none" },
+      grid_options: rowColumns(primary, [secondary], readViewportWidth()),
+    };
+    const [heading, ...body] = cards;
+    return [heading, ...pairHalfWidthCards([...body, identityCard])];
+  }
   return cards.length > 0 ? cards : null;
 }
 
@@ -326,6 +351,7 @@ export function syncPresencePillTooltip(pill: HTMLElement, source?: DotTooltipSo
   }
   tipSources.set(pill, source);
   pill.dataset.areaTip = "occupancy";
+  refreshOpenTooltipTarget(pill, { cards, hass: source.hass });
   if (pill.dataset.areaTipBound === "1") return;
   pill.dataset.areaTipBound = "1";
   const show = () => {

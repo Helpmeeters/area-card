@@ -1,3 +1,4 @@
+import { CAMERA_ROW_TAG } from "./camera-detections";
 import { areaBackgroundEqual, type AreaBackgroundMode } from "./background-mode";
 import { stripRoomName } from "./names";
 import { entityPinActive } from "./pin-visibility";
@@ -372,14 +373,14 @@ function innerHosts(card: HTMLElement): HTMLElement[] {
       if (
         child.localName === "area-card-light-row" ||
         child.localName === "area-card-device-row" ||
-        child.localName === "area-card-camera-row"
+        child.localName === CAMERA_ROW_TAG
       ) {
         const queue: HTMLElement[] = [child];
         while (queue.length > 0) {
           const parent = queue.shift()!;
           for (const nested of parent.children) {
             if (!(nested instanceof HTMLElement)) continue;
-            if (nested.localName === "area-card-device-row" || nested.localName === "area-card-camera-row" || nested.localName === "hui-card") {
+            if (nested.localName === "area-card-device-row" || nested.localName === CAMERA_ROW_TAG || nested.localName === "hui-card") {
               if (nested.localName !== "hui-card") hosts.push(nested);
               queue.push(nested);
             } else if (nested.localName.includes("-")) {
@@ -420,7 +421,7 @@ function stylePreviewCard(card: HTMLElement, edge: PinnedEdge, sideBySide: boole
     if (
       host.localName === "area-card-light-row" ||
       host.localName === "area-card-device-row" ||
-      host.localName === "area-card-camera-row"
+      host.localName === CAMERA_ROW_TAG
     ) continue;
     const root = host.shadowRoot;
     if (!root) continue;
@@ -450,7 +451,7 @@ function stylePreviewCard(card: HTMLElement, edge: PinnedEdge, sideBySide: boole
     (h) =>
       h.localName !== "area-card-light-row" &&
       h.localName !== "area-card-device-row" &&
-      h.localName !== "area-card-camera-row" &&
+      h.localName !== CAMERA_ROW_TAG &&
       h.shadowRoot?.querySelector("ha-card"),
   );
   if (!ready && tries < 30 && card.isConnected && typeof requestAnimationFrame === "function") {

@@ -220,6 +220,12 @@ function presencePillStyles(overPicture: boolean): string {
     "  outline: 2px solid var(--primary-color, currentColor);",
     "  outline-offset: 1px;",
     "}",
+    ".area-card-presence-identity {",
+    "  --mdc-icon-size: 12px;",
+    "  display: inline-flex;",
+    "  margin-left: 3px;",
+    "  opacity: 0.9;",
+    "}",
   ].join("\n");
 }
 

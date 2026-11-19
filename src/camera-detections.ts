@@ -1,4 +1,10 @@
+import { formatPersonBadgeTitle } from "./frigate-identity";
 import type { CameraDetection, EntityState } from "./sections";
+
+const CARD_TAG = "area-card";
+export const CAMERA_ROW_TAG = CARD_TAG.endsWith("-local")
+  ? `${CARD_TAG}-camera-row`
+  : "area-card-camera-row";
 
 export interface CameraClassBadge {
   name: string;
@@ -6,6 +12,7 @@ export interface CameraClassBadge {
   count: number | null;
   countText: string | null;
   title: string;
+  hasIdentity?: boolean;
 }
 
 export interface CameraReviewBadge {
@@ -61,9 +68,11 @@ function classIcon(
 export function computeCameraDetectionBadges(
   detection: CameraDetection,
   states: Record<string, EntityState | undefined>,
+  options: { personNames?: readonly string[]; unreviewedCount?: number } = {},
 ): CameraDetectionBadges {
   const classes: CameraClassBadge[] = [];
   let fallbackTotal = 0;
+  const personNames = options.personNames ?? [];
 
   for (const cls of detection.classes) {
     const occState = cls.occupancyEntityId ? states[cls.occupancyEntityId] : undefined;
@@ -77,15 +86,26 @@ export function computeCameraDetectionBadges(
     if (!occOn && (count === null || count <= 0)) continue;
 
     const icon = classIcon(cls.name, occState, countState);
-    const countText = count !== null && count >= 2 ? `×${count}` : null;
+    const singlePersonName =
+      cls.name === "person" && personNames.length === 1 && (count === null || count <= 1)
+        ? personNames[0]
+        : null;
+    const countText = singlePersonName ?? (count !== null && count >= 2 ? `×${count}` : null);
     const label = cls.name.charAt(0).toUpperCase() + cls.name.slice(1);
-    const title = count !== null && count > 0 ? `${label}: ${count}` : label;
+    const hasIdentity = cls.name === "person" && personNames.length > 0;
+    const title =
+      cls.name === "person"
+        ? formatPersonBadgeTitle(count, personNames)
+        : count !== null && count > 0
+          ? `${label}: ${count}`
+          : label;
     classes.push({
       name: cls.name,
       icon,
       count,
       countText,
       title,
+      ...(hasIdentity ? { hasIdentity: true } : {}),
     });
   }
 
@@ -94,7 +114,7 @@ export function computeCameraDetectionBadges(
   const allOn = detection.allOccupancyEntityId ? states[detection.allOccupancyEntityId]?.state === "on" : false;
 
   const reviewStatus = detection.reviewStatusEntityId
-    ? computeReviewBadge(states[detection.reviewStatusEntityId])
+    ? computeReviewBadge(states[detection.reviewStatusEntityId], options.unreviewedCount)
     : undefined;
 
   return {
@@ -106,12 +126,23 @@ export function computeCameraDetectionBadges(
   };
 }
 
-function computeReviewBadge(state: EntityState | undefined): CameraReviewBadge {
+function computeReviewBadge(state: EntityState | undefined, unreviewedCount: number = 0): CameraReviewBadge {
   const iconAttr = state?.attributes?.icon;
   const icon = typeof iconAttr === "string" && iconAttr.trim() !== "" ? iconAttr : "mdi:eye-check";
   const raw = typeof state?.state === "string" ? state.state.trim() : "";
   const lower = raw.toLowerCase();
-  if (!raw || lower === "none" || lower === "unknown" || lower === "unavailable" || lower === "0") {
+  const hasLiveStatus =
+    Boolean(raw) && lower !== "none" && lower !== "unknown" && lower !== "unavailable" && lower !== "0";
+
+  if (unreviewedCount > 0) {
+    return {
+      active: true,
+      icon,
+      text: String(unreviewedCount),
+      title: `Review queue: ${unreviewedCount} awaiting review`,
+    };
+  }
+  if (!hasLiveStatus) {
     return {
       active: false,
       icon,

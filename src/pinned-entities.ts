@@ -1,3 +1,5 @@
+import { CAMERA_ROW_TAG } from "./camera-detections";
+
 /**
  * Parsing and serialization stay pure. Persistence is Home Assistant frontend
  * user data in user-data.ts.
@@ -6,7 +8,7 @@ export const PINNED_KEY_PREFIX = "area-card-pinned:";
 
 const SECTION_TITLE = "custom:area-card-section-title";
 const LIGHT_ROW = "custom:area-card-light-row";
-const CAMERA_ROW = "custom:area-card-camera-row";
+const CAMERA_ROW = `custom:${CAMERA_ROW_TAG}`;
 const DEVICE_ROW = "custom:area-card-device-row";
 
 function isWrapperType(type: unknown): boolean {

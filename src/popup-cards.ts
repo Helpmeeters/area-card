@@ -1,3 +1,4 @@
+import { CAMERA_ROW_TAG } from "./camera-detections";
 import { formatDeviceSensors, sensorLabel } from "./device-row";
 import { mergeEntityOrder, type AreaEntityOrder } from "./entity-order";
 import { kioskSatelliteCardType } from "./kiosk-card";
@@ -32,7 +33,7 @@ interface RowLayout {
   entityOrder?: AreaEntityOrder;
 }
 const LIGHT_ROW = "custom:area-card-light-row";
-const CAMERA_ROW = "custom:area-card-camera-row";
+const CAMERA_ROW = `custom:${CAMERA_ROW_TAG}`;
 const DEVICE_ROW = "custom:area-card-device-row";
 const SECTION_TITLE = "custom:area-card-section-title";
 const STATUS_HEADING = {
@@ -212,8 +213,10 @@ function sectionBody(
         ),
       );
     case "occupancy":
-      return sections.occupancy.map((item) =>
-        occupancyCard(item.entityId, states, roomName, rows, item.pressureEntityId, sections.deviceSensors?.[item.entityId]),
+      return pairHalfWidthCards(
+        sections.occupancy.map((item) =>
+          occupancyCard(item.entityId, states, roomName, rows, item.pressureEntityId, sections.deviceSensors?.[item.entityId]),
+        ),
       );
     case "openings":
       return sections.openings.map((entity) => {
@@ -889,6 +892,28 @@ function automationLiteral(state: EntityState | undefined): string {
   if (hours < 22) return hours === 1 ? "1 hour ago" : `${hours} hours ago`;
   const days = Math.round(hours / 24);
   return days === 1 ? "1 day ago" : `${days} days ago`;
+}
+
+export function pairHalfWidthCards(cards: readonly Record<string, unknown>[]): Record<string, unknown>[] {
+  const remaining = [...cards];
+  const result: Record<string, unknown>[] = [];
+  const isHalf = (card: Record<string, unknown>): boolean =>
+    (card.grid_options as { columns?: unknown } | undefined)?.columns === 6;
+
+  while (remaining.length > 0) {
+    const first = remaining.shift()!;
+    result.push(first);
+    if (!isHalf(first)) continue;
+    if (remaining.length > 0 && isHalf(remaining[0])) {
+      result.push(remaining.shift()!);
+      continue;
+    }
+    const partnerIdx = remaining.findIndex(isHalf);
+    if (partnerIdx > 0) {
+      result.push(...remaining.splice(partnerIdx, 1));
+    }
+  }
+  return result;
 }
 
 function gridFor(
