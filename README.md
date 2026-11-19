@@ -1,51 +1,38 @@
 # Helpmeet: Area Card
 
-[![Home Assistant Marketplace / HACS](https://img.shields.io/badge/Marketplace%20%2F%20HACS-Custom-41BDF5.svg?style=flat-square)](https://github.com/Helpmeeters/area-card)
-[![GitHub Release](https://img.shields.io/github/v/release/Helpmeeters/area-card?style=flat-square)](https://github.com/Helpmeeters/area-card/releases)
-[![License: MIT](https://img.shields.io/github/license/Helpmeeters/area-card?style=flat-square)](LICENSE)
+![Home Assistant Marketplace / HACS](https://img.shields.io/badge/Marketplace%20%2F%20HACS-Custom-41BDF5.svg?style=flat-square)
+![GitHub Release](https://img.shields.io/github/v/release/Helpmeeters/area-card?style=flat-square)
+![License: MIT](https://img.shields.io/github/license/Helpmeeters/area-card?style=flat-square)
 
 A [Home Assistant Marketplace](https://www.home-assistant.io/integrations/marketplace/) / [HACS](https://hacs.xyz/) Lovelace plugin for Home Assistant areas and floors — **Area Card** shows an Area, **Floor Card** shows all Areas in a Floor, and **Floors Card** shows all Areas, organized by Floor.
 
-<p align="center">
-  <strong>Floor Card</strong><br />
-  <img src="https://raw.githubusercontent.com/Helpmeeters/area-card/main/docs/images/floor-card.png" alt="Floor Card showing Areas, status dots, and pinned entities" width="460" />
-</p>
+**Floor Card**  
+![Floor Card showing Areas, status dots, and pinned entities](https://raw.githubusercontent.com/Helpmeeters/area-card/main/docs/images/floor-card.png)
 
 ## Zero-Config Philosophy
 
-Each card requires only the selection of an Area or Floor (or nothing at all for **Floors Card**). Area Card depends heavily on Area hygiene, so your dashboard stays as well-organized as your Home Assistant. All customization happens directly in your dashboard.
+Each card requires only the selection of an Area or Floor (or nothing at all for **Floors Card**). Area Card depends heavily on Area hygiene and imagery, so your dashboard stays as well-organized and beautiful as your Home Assistant. All customization happens directly in your dashboard.
 
 ## Features
 
 - **Automatic Area Discovery** — Pick an area and the card reads its name, icon, picture, and assigned entities, building a `#area-<area_id>` popup organized by domain.
 - **Status Dots & Tooltips** — Fixed-slot section dots (`lights`, `media`, `cameras`, `switches`, `occupancy`, `openings`, `satellites`, `sensors`, `locks`, `vacuums`) with hover tooltips listing every row in that section.
-- **Subtitles & Unavailable Dimming** — Compact subtitle with temperature and humidity readings, helper counts, and automation summaries (including disabled automation counts), plus half-opacity dimming when all device entities in an area are unavailable.
-- **Pinning & Live Camera Backgrounds** — Pin favorite entities under the area button (**Always** or **While on** with a 2-minute grace window), or use a camera's live stream as the card background, synced per Home Assistant user across browsers.
+- **Subtitles & Unavailable Dimming** — Compact subtitle with temperature and humidity readings, helper counts, and automation summaries.
+- **Pinning & Live Camera Backgrounds** — Pin favorite entities under the area button (**Always** or **While on** with a 2-minute grace window), or use a camera's live stream as the card background.
 - **Battery Overlay** — Toggleable per-area battery percentage badges (**Off**, **Green**, **Yellow**, **Red**) synced per user across browsers.
 - **Floor & Floors Cards** — Collapsible **Floor Card** that aligns all areas on a floor and hides unused dot columns floor-wide, plus **Floors Card** to render every floor in registry order.
 
 ## Views
 
-<table>
-  <tr>
-    <td align="center" width="50%" valign="top">
-      <strong>Area Card - Basic</strong><br />
-      <img src="https://raw.githubusercontent.com/Helpmeeters/area-card/main/docs/images/area-card-basic.png" alt="Area Card — Basic" /><br /><br />
-      <strong>Area Card - With Pins</strong><br />
-      <img src="https://raw.githubusercontent.com/Helpmeeters/area-card/main/docs/images/area-card.png" alt="Area Card — With Pins" />
-    </td>
-    <td align="center" width="50%" valign="top">
-      <strong>Area Popup</strong><br />
-      <img src="https://raw.githubusercontent.com/Helpmeeters/area-card/main/docs/images/area-popup.png" alt="Area Popup showing status chips, entities, and header controls" />
-    </td>
-  </tr>
-</table>
+|                                                                                                                                                                                                                                                                                     |                                                                                                                                                                           |
+| ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Area Card - Basic** ![Area Card — Basic](https://raw.githubusercontent.com/Helpmeeters/area-card/main/docs/images/area-card-basic.png) **Area Card - With Pins** ![Area Card — With Pins](https://raw.githubusercontent.com/Helpmeeters/area-card/main/docs/images/area-card.png) | **Area Popup** ![Area Popup showing status chips, entities, and header controls](https://raw.githubusercontent.com/Helpmeeters/area-card/main/docs/images/area-popup.png) |
 
 ## Installation
 
 ### Marketplace / HACS (Recommended)
 
-[![Open your Home Assistant instance and open a repository inside the Home Assistant Community Store.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=Helpmeeters&repository=area-card&category=plugin)
+![Open your Home Assistant instance and open a repository inside the Home Assistant Community Store.](https://my.home-assistant.io/badges/hacs_repository.svg)
 
 *(This link opens **Marketplace** on Home Assistant 2026.11+ and **HACS** on earlier versions.)*
 
@@ -63,14 +50,6 @@ Each card requires only the selection of an Area or Floor (or nothing at all for
 3. Enter `https://github.com/Helpmeeters/area-card` and select **Dashboard** (or **Lovelace**) as the category.
 4. Click **Add**, then search for **Helpmeet: Area Card** and click **Download**.
 5. Refresh your browser when prompted.
-
-### Manual Installation
-
-1. Download `area-card.js`, `area-card-bubble.js`, and `area-card-mushroom.js` from the [latest release](https://github.com/Helpmeeters/area-card/releases/latest) (all three files must sit in the same directory).
-2. Copy them to `/config/www/`.
-3. In Home Assistant, go to **Settings → Dashboards → Resources**, click **Add Resource**, and enter:
-   - **URL**: `/local/area-card.js`
-   - **Resource type**: `JavaScript Module`
 
 ## Configuration
 

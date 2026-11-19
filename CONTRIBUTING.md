@@ -24,6 +24,15 @@ npm run build
 
 `npm test` runs the card's tests. `npm run build` writes `dist/area-card.js`, `dist/area-card-bubble.js`, and `dist/area-card-mushroom.js`.
 
+### Manual installation
+
+To test a local build in Home Assistant without Marketplace / HACS:
+
+1. Copy `dist/area-card.js`, `dist/area-card-bubble.js`, and `dist/area-card-mushroom.js` to `/config/www/` (all three files must sit in the same directory).
+2. In Home Assistant, go to **Settings → Dashboards → Resources**, click **Add Resource**, and enter:
+   - **URL**: `/local/area-card.js`
+   - **Resource type**: `JavaScript Module`
+
 ## Pull requests
 
 - Keep changes focused. One fix or feature per pull request.
