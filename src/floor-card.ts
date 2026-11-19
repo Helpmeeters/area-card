@@ -2,7 +2,14 @@ import { loadDisabledAutomations } from "./automations";
 import type { PresenceBadge } from "./button-config";
 import { hideAreaDotTooltip, showAreaDotTooltip } from "./dot-tooltip";
 import { floorClimateSummary, type FloorClimateSummary } from "./floor-climate";
-import { floorExpandedKey, floorRuntimeConfig, type FloorRuntimeConfig } from "./floor-state";
+import { createFloorOptionsButton, syncFloorOptionsButton } from "./floor-menu";
+import {
+  floorCollapsedAreasKey,
+  floorExpandedKey,
+  floorRuntimeConfig,
+  floorSortByPresenceKey,
+  type FloorRuntimeConfig,
+} from "./floor-state";
 import { areasOnFloor, floorDisplay, type AreaRef } from "./floors";
 import { floorPresenceInfo, formatPresenceBadge } from "./presence";
 import {
@@ -22,8 +29,16 @@ import {
   type SectionRollup,
 } from "./rollups";
 import { classifyArea, type AreaSections, type ClassifierHass } from "./sections";
-import { syncCardThemeFallback } from "./theme";
-import { cachedFloorExpanded, ensureUserData, saveFloorExpanded, subscribeUserData } from "./user-data";
+import {
+  cachedFloorCollapsedAreas,
+  cachedFloorExpanded,
+  cachedFloorSortByPresence,
+  ensureUserData,
+  saveFloorCollapsedAreas,
+  saveFloorExpanded,
+  saveFloorSortByPresence,
+  subscribeUserData,
+} from "./user-data";
 
 type AreaCardElement = HTMLElement & {
   hass?: ClassifierHass;
@@ -37,18 +52,6 @@ const CONFIG_FORM = {
       required: true,
       selector: { floor: {} },
     },
-    {
-      name: "sort_by_presence",
-      label: "Sort areas by presence",
-      default: true,
-      selector: { boolean: {} },
-    },
-    {
-      name: "collapsed_areas",
-      label: "Areas shown when collapsed",
-      default: 0,
-      selector: { number: { min: 0, max: 20, mode: "box" } },
-    },
   ],
 };
 
@@ -56,10 +59,13 @@ class FloorCard extends HTMLElement {
   private _config?: FloorRuntimeConfig;
   private _hass?: ClassifierHass;
   private _expanded = true;
+  private _collapsedAreas = 0;
+  private _sortByPresence = true;
   private headerEl?: HTMLElement;
   private bodyEl?: HTMLElement;
   private presenceEl?: HTMLElement;
   private climateEl?: HTMLElement;
+  private optionsBtn?: HTMLButtonElement;
   private dotsEl?: HTMLElement;
   private dotsStructure = "";
   private fitObserver?: ResizeObserver;
@@ -90,8 +96,7 @@ class FloorCard extends HTMLElement {
 
   getCardSize(): number {
     if (!this._expanded) {
-      const collapsedLimit = this._config?.collapsedAreas ?? 0;
-      const visibleCount = Math.min(this.areaEls.size, collapsedLimit);
+      const visibleCount = Math.min(this.areaEls.size, this._collapsedAreas);
       return 1 + 2 * visibleCount;
     }
     return 1 + 2 * this.areaEls.size;
@@ -116,6 +121,7 @@ class FloorCard extends HTMLElement {
       this.bodyEl = undefined;
       this.presenceEl = undefined;
       this.climateEl = undefined;
+      this.optionsBtn = undefined;
       this.dotsEl = undefined;
       this.dotsStructure = "";
       this.fitObserver?.disconnect();
@@ -138,21 +144,31 @@ class FloorCard extends HTMLElement {
 
   set hass(value: ClassifierHass) {
     this._hass = value;
-    syncCardThemeFallback(this, value);
     this.schedule();
   }
 
   connectedCallback(): void {
     this.style.display = "block";
-    syncCardThemeFallback(this, this._hass);
     this.unsubscribeUserData?.();
     this.unsubscribeUserData = subscribeUserData((key: string) => {
       const floorId = this._config?.floor;
-      if (!floorId || key !== floorExpandedKey(floorId)) return;
-      this._expanded = cachedFloorExpanded(floorId);
-      if (!this.headerEl) return;
-      this.syncChevron();
-      this.syncBody();
+      if (!floorId) return;
+      if (key === floorExpandedKey(floorId)) {
+        this._expanded = cachedFloorExpanded(floorId);
+        if (!this.headerEl) return;
+        this.syncChevron();
+        this.syncBody();
+      } else if (key === floorCollapsedAreasKey(floorId)) {
+        this._collapsedAreas = cachedFloorCollapsedAreas(floorId) ?? this._config?.collapsedAreas ?? 0;
+        if (!this.headerEl) return;
+        this.syncOptionsButton(this.areaEls.size);
+        this.syncBody();
+      } else if (key === floorSortByPresenceKey(floorId)) {
+        this._sortByPresence = cachedFloorSortByPresence(floorId) ?? this._config?.sortByPresence ?? true;
+        if (!this.headerEl) return;
+        this.syncOptionsButton(this.areaEls.size);
+        this.schedule();
+      }
     });
     this.schedule();
   }
@@ -192,8 +208,10 @@ class FloorCard extends HTMLElement {
     await ensureUserData(hass);
     if (this._hass !== hass || this._config?.floor !== floorId) return;
     this._expanded = cachedFloorExpanded(floorId);
+    this._collapsedAreas = cachedFloorCollapsedAreas(floorId) ?? this._config.collapsedAreas;
+    this._sortByPresence = cachedFloorSortByPresence(floorId) ?? this._config.sortByPresence;
     const { name, icon } = floorDisplay(hass, floorId);
-    const areas = areasOnFloor(hass, floorId, this._config.sortByPresence);
+    const areas = areasOnFloor(hass, floorId, this._sortByPresence);
     const classified = areas.map((area) => classifyArea(hass, area.areaId));
     const climate = floorClimateSummary(classified, hass.states ?? {});
     const hideList = computeFloorHide(classified);
@@ -236,6 +254,7 @@ class FloorCard extends HTMLElement {
     this.syncChevron();
     this.syncPresence(presenceBadge, occupancyTip);
     this.syncClimate(climate);
+    this.syncOptionsButton(areas.length);
     this.syncDots(dots);
     this.watchHeaderWidth();
 
@@ -371,6 +390,31 @@ class FloorCard extends HTMLElement {
       "background-color:var(--bubble-line-background-color, var(--ha-card-background-color, var(--secondary-background-color)))",
     ].join(";");
 
+    this.optionsBtn = createFloorOptionsButton({
+      onCollapsedAreasChange: (next) => {
+        const hass = this._hass;
+        const floorId = this._config?.floor;
+        if (!hass || !floorId) return;
+        void saveFloorCollapsedAreas(hass, floorId, next).then(() => {
+          if (this._config?.floor !== floorId) return;
+          this._collapsedAreas = next;
+          this.syncOptionsButton(this.areaEls.size);
+          this.syncBody();
+        });
+      },
+      onSortByPresenceChange: (next) => {
+        const hass = this._hass;
+        const floorId = this._config?.floor;
+        if (!hass || !floorId) return;
+        void saveFloorSortByPresence(hass, floorId, next).then(() => {
+          if (this._config?.floor !== floorId) return;
+          this._sortByPresence = next;
+          this.syncOptionsButton(this.areaEls.size);
+          this.schedule();
+        });
+      },
+    });
+
     this.dotsEl = document.createElement("div");
     this.dotsEl.className = "floor-card-dots";
     this.dotsEl.style.cssText = [
@@ -405,7 +449,16 @@ class FloorCard extends HTMLElement {
     chevronEl.setAttribute("icon", this.chevronIcon());
     chevronWrap.append(chevronEl);
 
-    header.append(nameEl, this.presenceEl, this.climateEl, lineEl, this.dotsEl, chevronWrap);
+    header.append(nameEl, this.presenceEl, this.climateEl, this.optionsBtn, lineEl, this.dotsEl, chevronWrap);
+  }
+
+  private syncOptionsButton(maxAreas: number): void {
+    if (!this.optionsBtn) return;
+    syncFloorOptionsButton(this.optionsBtn, {
+      collapsedAreas: this._collapsedAreas,
+      sortByPresence: this._sortByPresence,
+      maxAreas,
+    });
   }
 
   private syncPresence(badge: PresenceBadge | null, tip: string | null): void {
@@ -604,7 +657,7 @@ class FloorCard extends HTMLElement {
 
   private syncBody(): void {
     if (!this.bodyEl) return;
-    const collapsedLimit = this._config?.collapsedAreas ?? 0;
+    const collapsedLimit = this._collapsedAreas;
     const showBody = this._expanded || (collapsedLimit > 0 && this.areaEls.size > 0);
     // An empty display value clears the flex set on the body, so the 8px gap
     // never applies and the area cards stack with no column gap.

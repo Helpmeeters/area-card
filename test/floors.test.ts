@@ -1,6 +1,12 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { floorRuntimeConfig } from "../src/floor-state";
+import {
+  floorCollapsedAreasKey,
+  floorRuntimeConfig,
+  floorSortByPresenceKey,
+  parseFloorCollapsedAreas,
+  parseFloorSortByPresence,
+} from "../src/floor-state";
 import { areasOnFloor, areasOnFloorByPresence, floorIds, floorsSortedByPresence } from "../src/floors";
 import type { ClassifierHass, FloorEntry } from "../src/sections";
 
@@ -77,6 +83,28 @@ describe("floorRuntimeConfig", () => {
     assert.equal(floorRuntimeConfig("down", { collapsedAreas: 3.8 }).collapsedAreas, 3);
     assert.equal(floorRuntimeConfig("down", { collapsedAreas: Number.NaN }).collapsedAreas, 0);
     assert.equal(floorRuntimeConfig("down", { sortByPresence: false }).sortByPresence, false);
+  });
+});
+
+describe("floor UI state parsers", () => {
+  it("keys floor collapsed areas and sort-by-presence per floor", () => {
+    assert.equal(floorCollapsedAreasKey("downstairs"), "area-card-floor-collapsed-areas:downstairs");
+    assert.equal(floorSortByPresenceKey("downstairs"), "area-card-floor-sort-presence:downstairs");
+  });
+
+  it("parses collapsed areas counts and falls back cleanly", () => {
+    assert.equal(parseFloorCollapsedAreas(undefined), 0);
+    assert.equal(parseFloorCollapsedAreas("", 2), 2);
+    assert.equal(parseFloorCollapsedAreas("3"), 3);
+    assert.equal(parseFloorCollapsedAreas(-4), 0);
+    assert.equal(parseFloorCollapsedAreas(2.9), 2);
+  });
+
+  it("parses sort-by-presence booleans and strings", () => {
+    assert.equal(parseFloorSortByPresence(undefined), true);
+    assert.equal(parseFloorSortByPresence(false), false);
+    assert.equal(parseFloorSortByPresence("false"), false);
+    assert.equal(parseFloorSortByPresence("true", false), true);
   });
 });
 

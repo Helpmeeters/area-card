@@ -6,23 +6,6 @@ type FloorCardElement = HTMLElement & {
   setConfig(config: { floor: string; sort_by_presence?: boolean; collapsed_areas?: number }): void;
 };
 
-const CONFIG_FORM = {
-  schema: [
-    {
-      name: "sort_by_presence",
-      label: "Sort floors and areas by presence",
-      default: true,
-      selector: { boolean: {} },
-    },
-    {
-      name: "collapsed_areas",
-      label: "Areas shown when collapsed",
-      default: 0,
-      selector: { number: { min: 0, max: 20, mode: "box" } },
-    },
-  ],
-};
-
 class FloorsCard extends HTMLElement {
   private configured = false;
   private sortByPresence = true;
@@ -34,16 +17,8 @@ class FloorsCard extends HTMLElement {
   private running = false;
   private queued = false;
 
-  static getConfigForm(): typeof CONFIG_FORM {
-    return CONFIG_FORM;
-  }
-
   static getStubConfig(): Record<string, never> {
     return {};
-  }
-
-  getConfigForm(): typeof CONFIG_FORM {
-    return FloorsCard.getConfigForm();
   }
 
   createRenderRoot(): HTMLElement {

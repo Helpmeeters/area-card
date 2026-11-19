@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
 import { afterEach, beforeEach, describe, it } from "node:test";
-import { floorExpandedKey } from "../src/floor-state";
+import {
+  floorCollapsedAreasKey,
+  floorExpandedKey,
+  floorSortByPresenceKey,
+} from "../src/floor-state";
 import { pinnedKey, serializeAreaPins, type AreaPins } from "../src/pinned-entities";
 import type { ClassifierHass } from "../src/sections";
 import {
@@ -8,14 +12,18 @@ import {
   batteryModeKey,
   cachedAreaBackground,
   cachedBatteryMode,
+  cachedFloorCollapsedAreas,
   cachedFloorExpanded,
+  cachedFloorSortByPresence,
   cachedPins,
   ensureUserData,
   resetUserDataForTests,
   saveAreaBackground,
   saveAreaPins,
   saveBatteryMode,
+  saveFloorCollapsedAreas,
   saveFloorExpanded,
+  saveFloorSortByPresence,
   subscribeUserData,
 } from "../src/user-data";
 
@@ -525,5 +533,25 @@ describe("frontend user data", { concurrency: 1 }, () => {
     assert.deepEqual(cachedAreaBackground("office"), { mode: "camera", entityId: "camera.office" });
     const saved = harness.calls.find((call) => call.key === backgroundModeKey("office"));
     assert.deepEqual(saved?.value, { mode: "camera", entityId: "camera.office" });
+  });
+
+  it("caches and saves floor collapsed areas count and sort-by-presence", async () => {
+    const harness = createHarness();
+    const pending = ensureUserData(harness.hass);
+    harness.emit({
+      [floorCollapsedAreasKey("down")]: 2,
+      [floorSortByPresenceKey("down")]: false,
+    });
+    await pending;
+
+    assert.equal(cachedFloorCollapsedAreas("down"), 2);
+    assert.equal(cachedFloorSortByPresence("down"), false);
+    assert.equal(cachedFloorCollapsedAreas("up"), undefined);
+    assert.equal(cachedFloorSortByPresence("up"), undefined);
+
+    await saveFloorCollapsedAreas(harness.hass, "up", 3);
+    await saveFloorSortByPresence(harness.hass, "up", false);
+    assert.equal(cachedFloorCollapsedAreas("up"), 3);
+    assert.equal(cachedFloorSortByPresence("up"), false);
   });
 });

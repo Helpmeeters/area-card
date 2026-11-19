@@ -20,7 +20,7 @@ Each card requires only the selection of an Area or Floor (or nothing at all for
 - **Subtitles & Presence Pill** — Compact subtitle with temperature and humidity readings, helper counts, and automation summaries, plus a presence pill (`Occupied`, relative last-seen, or `Clear`) on collapsed Area Cards and Floor headers with occupancy tooltips.
 - **Pinning & Card Backgrounds** — Pin favorite entities under the area button (**Always** or **While on** with a 2-minute grace window). Collapsed cards default to a live light-color averaging background (`Light tint`), with a separate **Card Background** selector in popup edit mode (`Light tint`, `Area picture`, or `Camera`).
 - **Battery Overlay** — Toggleable per-area battery percentage badges (**Off**, **Green**, **Yellow**, **Red**) synced per user across browsers.
-- **Floor & Floors Cards** — Collapsible **Floor Card** with a rolled-up presence pill and median temperature and humidity in the floor header, dynamic presence sorting (`sort_by_presence`, default `true`), configurable `collapsed_areas` (`N`, default `0`) to keep the top `N` areas visible when collapsed, and floor-wide dot alignment — plus **Floors Card** to render every floor in registry order.
+- **Floor & Floors Cards** — Collapsible **Floor Card** with a rolled-up presence pill and median temperature and humidity in the floor header, plus a header options menu (**Areas when collapsed** stepper and **Sort by presence** toggle, synced per user across browsers) and floor-wide dot alignment — plus **Floors Card** to render every floor in registry order.
 
 ## Views
 
@@ -69,33 +69,29 @@ area: office_of_drew
 
 ### Floor Card (`custom:floor-card`)
 
-Displays a collapsible floor header with a rolled-up presence pill, median temperature/humidity, aggregated status dots, and one **Area Card** per area on that floor, aligned by dot column. Areas are sorted dynamically by presence by default (`sort_by_presence: true`), and up to `collapsed_areas` (`N`) top areas can remain visible when the floor is collapsed. Add **Floor Card** from the card picker and select a **Floor**.
+Displays a collapsible floor header with a rolled-up presence pill, median temperature/humidity, a floor options menu (**Areas when collapsed** and **Sort by presence**, persisted per user), aggregated status dots, and one **Area Card** per area on that floor, aligned by dot column. Add **Floor Card** from the card picker and select a **Floor**.
 
 ```yaml
 type: custom:floor-card
 floor: downstairs
 ```
 
-| Option | Type | Required | Default | Description |
-| --- | --- | --- | --- | --- |
-| `type` | `string` | **Yes** | — | `custom:floor-card` |
-| `floor` | `string` | **Yes** | — | Floor ID from Home Assistant. |
-| `sort_by_presence` | `boolean` | No | `true` | Sort areas dynamically by occupancy and recent presence. |
-| `collapsed_areas` | `number` | No | `0` | Number of top areas (`N`) to keep visible when the floor is collapsed. |
+| Option | Type | Required | Description |
+| --- | --- | --- | --- |
+| `type` | `string` | **Yes** | `custom:floor-card` |
+| `floor` | `string` | **Yes** | Floor ID from Home Assistant. |
 
 ### Floors Card (`custom:floors-card`)
 
-Renders one **Floor Card** for every floor in Home Assistant, in the floor registry's order, with median climate headers, dynamic presence sorting, and optional collapsed top-N areas.
+Renders one **Floor Card** for every floor in Home Assistant, in the floor registry's order, with median climate headers and per-floor options menus.
 
 ```yaml
 type: custom:floors-card
 ```
 
-| Option | Type | Required | Default | Description |
-| --- | --- | --- | --- | --- |
-| `type` | `string` | **Yes** | — | `custom:floors-card` |
-| `sort_by_presence` | `boolean` | No | `true` | Sort areas dynamically by occupancy and recent presence on each floor. |
-| `collapsed_areas` | `number` | No | `0` | Number of top areas (`N`) to keep visible when a floor is collapsed. |
+| Option | Type | Required | Description |
+| --- | --- | --- | --- |
+| `type` | `string` | **Yes** | `custom:floors-card` |
 
 ## Advanced Configuration
 

@@ -160,8 +160,9 @@ Each popup section heading uses its section icon to the left of the title.
 - Collapsible floor header with floor name, floor registry icon (omitted if none), **presence pill** (rolled up across the floor's occupancy sensors, with an `Occupancy X/Y On` tooltip), **median climate** (median temperature and humidity across the floor's areas), rule, row of dots, and collapse control.
 - Clicking the header collapses or expands the card. Open/closed state is stored per Home Assistant user across browsers (defaults to expanded).
 - When expanded, shows one Area Card per area assigned to the floor (including unavailable areas).
-- **Dynamic presence sorting (`sort_by_presence`, default `true`)**: when enabled, orders areas by current occupancy first, then most recent presence/last-seen, falling back to alphabetical order. When `false`, sorts areas alphabetically.
-- **Collapsed top-N areas (`collapsed_areas`, default `0`)**: when the floor is collapsed and `collapsed_areas` (`N`) is greater than `0`, the top `N` areas (using the active sort order) remain visible beneath the collapsed header.
+- **Floor options menu** (in the floor header, synced per Home Assistant user across browsers):
+  - **Areas when collapsed**: `−` / `+` stepper (default `0`) to keep the top `N` areas (using the active sort order) visible beneath the collapsed header.
+  - **Sort by presence**: toggle (default `On`) to order areas by current occupancy first, then most recent presence/last-seen, falling back to alphabetical order (`Off` sorts alphabetically).
 - Header dots sit left of the collapse control and use the same slots as Area Cards (no `climate`, `occupancy`, `buttons`, `scenes`, `scripts`, `helpers`, or `automations` column). A dot is filled if any area on the floor has that section active, hollow if present anywhere on the floor, and invisible otherwise. Tooltips show aggregated counts (e.g., `Lights 3/12 On`).
 - Area cards on the floor shift their dots left by the width of the collapse control so columns align. On narrow headers, the floor name stays whole and dots leave from the left so remaining columns still align.
 - **Floor-wide section hiding**: sections absent on every area of the floor are hidden across all area cards on that floor so dot rows stay compact and aligned. Sections present on even one area stay visible on every area card of that floor.

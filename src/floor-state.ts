@@ -18,12 +18,8 @@ export function floorRuntimeConfig(
   floor: string,
   options?: { sortByPresence?: boolean; collapsedAreas?: number },
 ): FloorRuntimeConfig {
-  const sortByPresence = options?.sortByPresence !== false;
-  const rawCollapsed = options?.collapsedAreas;
-  const collapsedAreas =
-    typeof rawCollapsed === "number" && Number.isFinite(rawCollapsed)
-      ? Math.max(0, Math.floor(rawCollapsed))
-      : 0;
+  const sortByPresence = parseFloorSortByPresence(options?.sortByPresence, true);
+  const collapsedAreas = parseFloorCollapsedAreas(options?.collapsedAreas, 0);
   return {
     floor,
     type: BUBBLE_SHARED_STACK_TYPE,
@@ -33,9 +29,36 @@ export function floorRuntimeConfig(
 }
 
 export const FLOOR_EXPANDED_KEY_PREFIX = "area-card-floor-expanded:";
+export const FLOOR_COLLAPSED_AREAS_KEY_PREFIX = "area-card-floor-collapsed-areas:";
+export const FLOOR_SORT_BY_PRESENCE_KEY_PREFIX = "area-card-floor-sort-presence:";
 
 export function floorExpandedKey(floorId: string): string {
   return `${FLOOR_EXPANDED_KEY_PREFIX}${floorId}`;
+}
+
+export function floorCollapsedAreasKey(floorId: string): string {
+  return `${FLOOR_COLLAPSED_AREAS_KEY_PREFIX}${floorId}`;
+}
+
+export function floorSortByPresenceKey(floorId: string): string {
+  return `${FLOOR_SORT_BY_PRESENCE_KEY_PREFIX}${floorId}`;
+}
+
+export function parseFloorCollapsedAreas(value: unknown, fallback = 0): number {
+  const num =
+    typeof value === "number"
+      ? value
+      : typeof value === "string" && value.trim() !== ""
+        ? Number(value)
+        : Number.NaN;
+  if (!Number.isFinite(num)) return fallback;
+  return Math.max(0, Math.floor(num));
+}
+
+export function parseFloorSortByPresence(value: unknown, fallback = true): boolean {
+  if (value === true || value === "true") return true;
+  if (value === false || value === "false") return false;
+  return fallback;
 }
 
 /** Missing or unrecognized values keep the card's default, which is expanded. */

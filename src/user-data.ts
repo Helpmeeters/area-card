@@ -22,7 +22,16 @@ import {
   serializeEntityOrder,
   type AreaEntityOrder,
 } from "./entity-order";
-import { FLOOR_EXPANDED_KEY_PREFIX, floorExpandedKey } from "./floor-state";
+import {
+  FLOOR_COLLAPSED_AREAS_KEY_PREFIX,
+  FLOOR_EXPANDED_KEY_PREFIX,
+  FLOOR_SORT_BY_PRESENCE_KEY_PREFIX,
+  floorCollapsedAreasKey,
+  floorExpandedKey,
+  floorSortByPresenceKey,
+  parseFloorCollapsedAreas,
+  parseFloorSortByPresence,
+} from "./floor-state";
 import {
   PINNED_KEY_PREFIX,
   legacyBackgroundCamera,
@@ -55,6 +64,8 @@ interface FrontendHass {
 type CacheEntry =
   | { kind: "pins"; pins: AreaPins }
   | { kind: "floor"; expanded: boolean }
+  | { kind: "floorCollapsedAreas"; count: number }
+  | { kind: "floorSortByPresence"; enabled: boolean }
   | { kind: "battery"; mode: BatteryMode }
   | { kind: "order"; order: AreaEntityOrder }
   | { kind: "background"; bg: AreaBackgroundMode };
@@ -95,6 +106,14 @@ function isFloorKey(key: string): boolean {
   return key.startsWith(FLOOR_EXPANDED_KEY_PREFIX);
 }
 
+function isFloorCollapsedAreasKey(key: string): boolean {
+  return key.startsWith(FLOOR_COLLAPSED_AREAS_KEY_PREFIX);
+}
+
+function isFloorSortByPresenceKey(key: string): boolean {
+  return key.startsWith(FLOOR_SORT_BY_PRESENCE_KEY_PREFIX);
+}
+
 function isBatteryKey(key: string): boolean {
   return key.startsWith(BATTERY_MODE_KEY_PREFIX);
 }
@@ -108,7 +127,15 @@ function isBackgroundKey(key: string): boolean {
 }
 
 function isAreaCardKey(key: string): boolean {
-  return isPinKey(key) || isFloorKey(key) || isBatteryKey(key) || isOrderKey(key) || isBackgroundKey(key);
+  return (
+    isPinKey(key) ||
+    isFloorKey(key) ||
+    isFloorCollapsedAreasKey(key) ||
+    isFloorSortByPresenceKey(key) ||
+    isBatteryKey(key) ||
+    isOrderKey(key) ||
+    isBackgroundKey(key)
+  );
 }
 
 function asDict(value: unknown): Record<string, unknown> | undefined {
@@ -161,6 +188,8 @@ function floorBoolean(value: unknown): boolean {
 
 function departsFromDefault(entry: CacheEntry): boolean {
   if (entry.kind === "floor") return entry.expanded === false;
+  if (entry.kind === "floorCollapsedAreas") return entry.count > 0;
+  if (entry.kind === "floorSortByPresence") return entry.enabled === false;
   if (entry.kind === "battery") return entry.mode !== "off";
   if (entry.kind === "order") return Object.keys(entry.order).length > 0;
   if (entry.kind === "background") return entry.bg.mode !== "light-tint";
@@ -186,6 +215,22 @@ function commitFloor(key: string, expanded: boolean): void {
   const previous = prev?.kind === "floor" ? prev.expanded : true;
   cache.set(key, { kind: "floor", expanded });
   if (previous !== expanded) notify(key);
+}
+
+function commitFloorCollapsedAreas(key: string, count: number): void {
+  const prev = cache.get(key);
+  if (prev?.kind === "floorCollapsedAreas" && prev.count === count) return;
+  const previous = prev?.kind === "floorCollapsedAreas" ? prev.count : 0;
+  cache.set(key, { kind: "floorCollapsedAreas", count });
+  if (previous !== count) notify(key);
+}
+
+function commitFloorSortByPresence(key: string, enabled: boolean): void {
+  const prev = cache.get(key);
+  if (prev?.kind === "floorSortByPresence" && prev.enabled === enabled) return;
+  const previous = prev?.kind === "floorSortByPresence" ? prev.enabled : true;
+  cache.set(key, { kind: "floorSortByPresence", enabled });
+  if (previous !== enabled) notify(key);
 }
 
 function commitBattery(key: string, mode: BatteryMode): void {
@@ -217,6 +262,8 @@ function commitBackground(key: string, bg: AreaBackgroundMode): void {
 function commitSent(key: string, value: unknown): void {
   if (isPinKey(key)) commitPins(key, parseAreaPins(value));
   else if (isFloorKey(key)) commitFloor(key, floorBoolean(value));
+  else if (isFloorCollapsedAreasKey(key)) commitFloorCollapsedAreas(key, parseFloorCollapsedAreas(value));
+  else if (isFloorSortByPresenceKey(key)) commitFloorSortByPresence(key, parseFloorSortByPresence(value));
   else if (isBatteryKey(key)) commitBattery(key, parseBatteryMode(value));
   else if (isOrderKey(key)) commitOrder(key, parseEntityOrder(value));
   else if (isBackgroundKey(key)) commitBackground(key, parseAreaBackground(value));
@@ -246,6 +293,8 @@ function applyDocument(doc: Record<string, unknown>, gen: number, migrateLegacyB
     seen.add(key);
     if (isWriting(key)) continue;
     if (isPinKey(key)) commitPins(key, parseAreaPins(raw));
+    else if (isFloorCollapsedAreasKey(key)) commitFloorCollapsedAreas(key, parseFloorCollapsedAreas(raw));
+    else if (isFloorSortByPresenceKey(key)) commitFloorSortByPresence(key, parseFloorSortByPresence(raw));
     else if (isBatteryKey(key)) commitBattery(key, parseBatteryMode(raw));
     else if (isOrderKey(key)) commitOrder(key, parseEntityOrder(raw));
     else if (isBackgroundKey(key)) commitBackground(key, parseAreaBackground(raw));
@@ -592,6 +641,26 @@ export function saveAreaPins(hass: ClassifierHass, areaId: string, pins: AreaPin
 
 export function saveFloorExpanded(hass: ClassifierHass, floorId: string, expanded: boolean): Promise<void> {
   return setValue(hassApi(hass), floorExpandedKey(floorId), expanded);
+}
+
+export function cachedFloorCollapsedAreas(floorId: string): number | undefined {
+  const entry = cache.get(floorCollapsedAreasKey(floorId));
+  if (!entry || entry.kind !== "floorCollapsedAreas") return undefined;
+  return entry.count;
+}
+
+export function saveFloorCollapsedAreas(hass: ClassifierHass, floorId: string, count: number): Promise<void> {
+  return setValue(hassApi(hass), floorCollapsedAreasKey(floorId), parseFloorCollapsedAreas(count));
+}
+
+export function cachedFloorSortByPresence(floorId: string): boolean | undefined {
+  const entry = cache.get(floorSortByPresenceKey(floorId));
+  if (!entry || entry.kind !== "floorSortByPresence") return undefined;
+  return entry.enabled;
+}
+
+export function saveFloorSortByPresence(hass: ClassifierHass, floorId: string, enabled: boolean): Promise<void> {
+  return setValue(hassApi(hass), floorSortByPresenceKey(floorId), enabled);
 }
 
 export function cachedBatteryMode(areaId: string): BatteryMode {
