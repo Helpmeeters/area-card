@@ -67,6 +67,7 @@ import {
   pinnedPictureSurfaceStyles,
   type CameraPictureLoad,
 } from "./picture";
+import { syncAreaEditButton, syncCloseButtonTooltip, syncPinEditButton } from "./header-tooltips";
 import { areaSettingsPath, ensureHeaderButtons } from "./popup-chrome";
 import { type RollupId, type SectionRollup } from "./rollups";
 import { areaUnavailable, membershipKey, type ClassifierHass } from "./sections";
@@ -626,7 +627,9 @@ class AreaCard extends HTMLElement {
       this.pinEditEl = pencil;
       this.areaEditEl = gear;
       ensureHeaderButtons(actions, battery, pencil, gear);
-      pencil.setAttribute("aria-pressed", this.pinEditing ? "true" : "false");
+      syncPinEditButton(pencil, this.pinEditing);
+      syncAreaEditButton(gear);
+      syncCloseButtonTooltip(actions);
       syncBatteryButton(battery, cachedBatteryMode(areaId));
     }
     this.paintBatteries(cachedBatteryMode(areaId));
@@ -653,8 +656,6 @@ class AreaCard extends HTMLElement {
     const button = document.createElement("button");
     button.type = "button";
     button.className = "bubble-header-action-button area-card-pin-edit";
-    button.setAttribute("aria-label", "Choose what shows on the card");
-    button.setAttribute("aria-pressed", this.pinEditing ? "true" : "false");
     button.style.padding = "0";
     button.style.border = "none";
     const icon = document.createElement("ha-icon");
@@ -668,6 +669,7 @@ class AreaCard extends HTMLElement {
       this.pinEditing = !this.pinEditing;
       this.applyAreaEdit();
     });
+    syncPinEditButton(button, this.pinEditing);
     return button;
   }
 
@@ -1400,7 +1402,6 @@ class AreaCard extends HTMLElement {
     const button = document.createElement("button");
     button.type = "button";
     button.className = "bubble-header-action-button area-card-edit-area";
-    button.setAttribute("aria-label", "Edit area");
     button.style.padding = "0";
     button.style.border = "none";
     const icon = document.createElement("ha-icon");
@@ -1421,6 +1422,7 @@ class AreaCard extends HTMLElement {
         }),
       );
     });
+    syncAreaEditButton(button);
     return button;
   }
 

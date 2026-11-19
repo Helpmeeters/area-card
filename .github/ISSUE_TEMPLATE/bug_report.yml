@@ -32,7 +32,7 @@ body:
     attributes:
       label: Area Card version
       description: From HACS.
-      placeholder: "0.1.36"
+      placeholder: "0.1.37"
     validations:
       required: true
   - type: dropdown
