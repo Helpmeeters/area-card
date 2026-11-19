@@ -112,8 +112,8 @@ Change `call(...)` for the command you need. Commands that already work:
 - Registries: `config/area_registry/list`, `config/floor_registry/list`, `config/entity_registry/list`, `config/device_registry/list`, `get_states`
 - Dashboard read: `lovelace/config` with `url_path: "dynamic-home"` (storage mode, title Wonderwood). The dashboard body is `result` (`result.views`), not the websocket envelope.
 - Dashboard write: re-read immediately before saving and snapshot that `result` to `/tmp`. Save with `lovelace/config/save`, `url_path: "dynamic-home"`, and `config` set to that object. This instance has no config hash, so a second writer clobbers the first. Re-read after the save and check the cards you changed.
-- Lovelace resources: `lovelace/resources`. Wonderwood's resource id is `657217310ddd49488a2cc228e3488e0a` and its URL is `/hacsfiles/area-card/area-card.js`. Wonderwood Local's resource id is `cea25e92ccf54575b6ad7617f98f8368` and its URL is the dev server's `area-card-local.js`. `area-card-bubble.js` and `area-card-mushroom.js` are siblings of whichever script loaded. Update one resource with `lovelace/resources/update` and `{ "resource_id", "res_type": "module", "url" }`. Do not point one dashboard's resource at the other.
-- Install a release: the HACS repository id on treetop is `1455927335`. If a command rejects it, `hacs/repositories/list` and take the repo whose name contains `area-card`. `hacs/repository/update` may return Unknown command. `hacs/repository/download` with `{ "repository": "<id>" }` is the install. Allow 90 seconds. Proof is an HTTP GET of `$HASS_URL/hacsfiles/area-card/area-card.js` with `Authorization: Bearer <token>` whose body contains the change. The dashboard cache key is `?hacstag=<id><version with the dots removed>` (`1.0.22` → `14559273351022`).
+- Lovelace resources: `lovelace/resources`. Wonderwood's resource id is `7e983056af97449ea75a6aab81e54e1b` and its URL is `/local/community/area-card/area-card.js?v=1455927335-vX.Y.Z` (managed by Home Assistant Marketplace). Wonderwood Local's resource id is `cea25e92ccf54575b6ad7617f98f8368` and its URL is the dev server's `area-card-local.js`. `area-card-bubble.js` and `area-card-mushroom.js` are siblings of whichever script loaded. Update one resource with `lovelace/resources/update` and `{ "resource_id", "res_type": "module", "url" }`. Do not point one dashboard's resource at the other.
+- Install a release: treetop uses Home Assistant Marketplace (`update.area_card_update`). Refresh with `call_service` `homeassistant.update_entity` targeting `update.area_card_update`, poll `get_states` until `latest_version` is `vX.Y.Z`, then call `update.install` targeting `update.area_card_update` with `service_data: { "version": "vX.Y.Z" }`. Allow 90 seconds. Proof is an HTTP GET of `$HASS_URL/local/community/area-card/area-card.js` with `Authorization: Bearer <token>` whose body contains the change. The dashboard cache key is `?v=1455927335-vX.Y.Z`.
 
 ## Local or release
 
@@ -125,7 +125,7 @@ Choose the path here, before any release step.
 
 v1.0.23 was published because a request to serve Wonderwood Local was carried out as a release. Do not do that again.
 
-Wonderwood is `http://treetop:8123/dynamic-home/home`. It loads the released HACS file `/hacsfiles/area-card/area-card.js`. Changing it means the full release path: version bump, commit, push, `gh release create` with the three dist assets, then HACS download. Those steps are "Ship a card change" and "Serve to Wonderwood with a release".
+Wonderwood is `http://treetop:8123/dynamic-home/home`. It loads the released Marketplace file `/local/community/area-card/area-card.js`. Changing it means the full release path: README + screenshot check, version bump, commit, push, `gh release create` with the three dist assets, then Marketplace update on treetop. Those steps are "Ship a card change" and "Serve to Wonderwood with a release".
 
 Wonderwood Local is `http://treetop:8123/dynamic-home-local/home`. Its own resource is `http://100.84.152.125:8787/area-card-local.js`. The repo has no serve script. Reuse `node /tmp/area-card-dev-server.mjs`, which serves the working tree `dist/area-card.js` as `area-card-local.js` on port 8787. If that process is already listening, leave it. Do not invent a second server. `npm run build` refreshes that file. Serving local changes does not commit, push, release, or update the HACS resource. Those steps are "Serve to Wonderwood Local from local dev changes".
 
@@ -139,8 +139,9 @@ There is no GitHub Actions workflow. `dist/` is gitignored and is uploaded only 
 
 1. `git fetch origin` and rebase onto `origin/main` before editing. Another agent may be releasing.
 2. Change `src/` and `test/`. Run `npm test`. `npm run build` refreshes the prefixed vendor copies and writes `dist/area-card.js`, `dist/area-card-bubble.js`, and `dist/area-card-mushroom.js`.
-3. Bump `package.json` version on the **`0.1.x`** line (e.g., `0.1.35` → `0.1.36`). Do NOT bump to `1.0.x`, even though historical `v1.0.0`–`v1.0.35` tags sort higher under `git tag --sort=-v:refname`. Check `git tag -l 'v0.1.*' --sort=-v:refname | head -n 1` and `package.json`. Commit only the files for this change. Leave `.gstack/`, `.env`, `dist/`, and unrelated `.gitignore` edits unstaged.
-4. Push, then:
+3. Update `README.md` to include any new features, and update screenshots in `docs/images/` (`floor-card.png`, `area-card-basic.png`, `area-card.png`, `area-popup.png`) if UI/visual behavior changed. (You can capture them from Wonderwood Local first.)
+4. Bump `package.json` version on the **`0.1.x`** line (e.g., `0.1.35` → `0.1.36`). Do NOT bump to `1.0.x`, even though historical `v1.0.0`–`v1.0.35` tags sort higher under `git tag --sort=-v:refname`. Check `git tag -l 'v0.1.*' --sort=-v:refname | head -n 1` and `package.json`. Commit only the files for this change. Leave `.gstack/`, `.env`, `dist/`, and unrelated `.gitignore` edits unstaged.
+5. Push, then:
 
 ```bash
 gh release create vX.Y.Z dist/area-card.js dist/area-card-bubble.js dist/area-card-mushroom.js \
@@ -149,7 +150,7 @@ gh release create vX.Y.Z dist/area-card.js dist/area-card-bubble.js dist/area-ca
 
 Build those three files from the commit you are tagging. A dirty worktree leaks unrelated code into the asset (this happened on v1.0.9). If other edits are present, build from a clean worktree of that commit.
 
-5. Serve that release to Wonderwood, below. Do not start that path for a local-only look.
+6. Serve that release to Wonderwood, below (always do this on every release). Do not start that path for a local-only look.
 
 Do not change git config. Do not skip hooks. Commit only when the task asks you to ship.
 
@@ -168,12 +169,12 @@ The Local resource URL is `http://<this Mac's Tailscale address>:8787/area-card-
 
 ## Serve to Wonderwood with a release
 
-Wonderwood (`http://treetop:8123/dynamic-home/home`) loads the HACS copy. Follow "Ship a card change" through the GitHub release, then update Home Assistant:
+Wonderwood (`http://treetop:8123/dynamic-home/home`) loads the Marketplace copy. Follow "Ship a card change" through the GitHub release, then update Home Assistant on every release:
 
-1. `hacs/repository/download` with `{ "repository": "1455927335" }`, as under Home Assistant above.
-2. GET `$HASS_URL/hacsfiles/area-card/area-card.js` with the bearer token. The body must contain the change.
-3. Wonderwood's resource URL must be `/hacsfiles/area-card/area-card.js?hacstag=1455927335<version with the dots removed>`. HACS often writes that query during the download. If it is still the previous version, `lovelace/resources/update` resource id `657217310ddd49488a2cc228e3488e0a` only. Do not change the Wonderwood Local resource.
-4. Reload Wonderwood. Leave Wonderwood Local on the dev server.
+1. Refresh `update.area_card_update` with `call_service` `homeassistant.update_entity`, wait until `latest_version` is `vX.Y.Z`, then call `update.install` targeting `update.area_card_update` with `service_data: { "version": "vX.Y.Z" }`.
+2. GET `$HASS_URL/local/community/area-card/area-card.js` with the bearer token. The body must contain the change.
+3. Wonderwood's resource URL must be `/local/community/area-card/area-card.js?v=1455927335-vX.Y.Z`. Marketplace usually writes that query during the install. If it is still the previous version, `lovelace/resources/update` resource id `7e983056af97449ea75a6aab81e54e1b` only. Do not change the Wonderwood Local resource.
+4. Reload Wonderwood (`http://treetop:8123/dynamic-home/home`) and verify `performance.getEntriesByType("resource")` loads the new version. Leave Wonderwood Local on the dev server.
 
 ## One writer
 
