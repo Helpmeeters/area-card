@@ -28,11 +28,13 @@ import {
   type RollupId,
   type SectionRollup,
 } from "./rollups";
-import { classifyArea, type AreaSections, type ClassifierHass } from "./sections";
+import { applyChipPins, classifyArea, type AreaSections, type ClassifierHass } from "./sections";
+import { PINNED_KEY_PREFIX } from "./pinned-entities";
 import {
   cachedFloorCollapsedAreas,
   cachedFloorExpanded,
   cachedFloorSortByPresence,
+  cachedPins,
   ensureUserData,
   saveFloorCollapsedAreas,
   saveFloorExpanded,
@@ -168,6 +170,8 @@ class FloorCard extends HTMLElement {
         if (!this.headerEl) return;
         this.syncOptionsButton(this.areaEls.size);
         this.schedule();
+      } else if (key.startsWith(PINNED_KEY_PREFIX)) {
+        this.schedule();
       }
     });
     this.schedule();
@@ -212,7 +216,9 @@ class FloorCard extends HTMLElement {
     this._sortByPresence = cachedFloorSortByPresence(floorId) ?? this._config.sortByPresence;
     const { name, icon } = floorDisplay(hass, floorId);
     const areas = areasOnFloor(hass, floorId, this._sortByPresence);
-    const classified = areas.map((area) => classifyArea(hass, area.areaId));
+    const classified = areas.map((area) =>
+      applyChipPins(classifyArea(hass, area.areaId), cachedPins(area.areaId).chip, hass.states ?? {}),
+    );
     const climate = floorClimateSummary(classified, hass.states ?? {});
     const hideList = computeFloorHide(classified);
     const slots = collapsedDotSlots(hideList);

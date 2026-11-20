@@ -6,6 +6,7 @@ import type { BatteryMode } from "./battery";
 import { loadDisabledAutomations } from "./automations";
 import { buildButtonConfig, type ButtonConfigInput } from "./button-config";
 import { averageLightColor, lightTintBackgroundStyles, type RgbColor } from "./light-tint";
+import { stripRoomName } from "./names";
 import {
   AREA_CARD_CONFIG_FORM,
   contentFor,
@@ -366,6 +367,8 @@ class AreaCard extends HTMLElement {
   private pinnedRowsVisible = false;
   private popupCards: readonly Record<string, unknown>[] = [];
   private entityScopes = new Map<string, string>();
+  private sensorChipTargets: Record<string, string> = {};
+  private lastChipKey = "";
   private pinnedConfigKey = new WeakMap<HTMLElement, string>();
   private resizeTimer = 0;
   private lastViewport = 0;
@@ -464,6 +467,11 @@ class AreaCard extends HTMLElement {
         return;
       }
       if (key !== pinnedKey(areaId)) return;
+      const chipKey = (cachedPins(areaId).chip ?? []).slice().sort().join(",");
+      if (chipKey !== this.lastChipKey) {
+        this.lastChipKey = chipKey;
+        this.schedule();
+      }
       this.syncPinnedRow(hass, areaId);
       this.applyAreaEdit();
     });
@@ -549,6 +557,8 @@ class AreaCard extends HTMLElement {
       lightTint: this.pinnedRowsVisible ? null : this.resolvedLightTint,
       unavailable,
       entityOrder: cachedEntityOrder(seeded.areaId),
+      chipPins: cachedPins(seeded.areaId).chip,
+      keepChipSensorsInList: this.pinEditing,
     });
     const areaId = view.content.areaId;
     const { name, icon, sections } = view.content;
@@ -557,6 +567,8 @@ class AreaCard extends HTMLElement {
     const states = view.content.states;
     const signature = membershipKey(areaId, name, icon, sections);
     this.entityScopes = entityScopeMap(visibleSections);
+    this.sensorChipTargets = visibleSections.sensorChipTargets ?? {};
+    this.lastChipKey = (cachedPins(areaId).chip ?? []).slice().sort().join(",");
     this.dotRollups = view.rollups;
     const frigateRefs = demo ? [] : getFrigateCameraRefs(visibleSections.cameras, states);
     if (frigateRefs.length > 0) {
@@ -804,6 +816,7 @@ class AreaCard extends HTMLElement {
       const popup = root.querySelector(".bubble-pop-up");
       if (this.pinEditing && !popup?.classList.contains("is-popup-opened")) {
         this.pinEditing = false;
+        if (this.lastChipKey !== "") this.schedule();
       }
       const actions = root.querySelector(".bubble-header-actions");
       if (actions) {
@@ -823,7 +836,21 @@ class AreaCard extends HTMLElement {
       syncPopupEditGuards(root, this.pinEditing);
       syncPinToggles(root, {
         editing: this.pinEditing,
-        modeOf: (entityId) => pinMode(cachedPins(areaId), entityId),
+        modeOf: (entityId) => {
+          const mode = pinMode(cachedPins(areaId), entityId);
+          if (mode === "chip" && !this.sensorChipTargets[entityId]) return "hidden";
+          return mode;
+        },
+        chipTargetOf: (entityId) => {
+          const targetId = this.sensorChipTargets[entityId];
+          if (!targetId || !this._hass) return null;
+          const raw = this._hass.states?.[targetId]?.attributes?.friendly_name;
+          const label =
+            typeof raw === "string" && raw.trim() !== ""
+              ? stripRoomName(raw, this.roomName) || raw.trim()
+              : targetId;
+          return { entityId: targetId, label };
+        },
         onSelect: (entityId, mode) => this.pinSelected(areaId, entityId, mode),
       });
       if (this._hass) {
@@ -888,6 +915,7 @@ class AreaCard extends HTMLElement {
     button.addEventListener("click", (event) => {
       event.stopPropagation();
       this.pinEditing = !this.pinEditing;
+      if (this.lastChipKey !== "") this.schedule();
       this.applyAreaEdit();
     });
     syncPinEditButton(button, this.pinEditing);

@@ -339,6 +339,45 @@ describe("syncPinToggles", () => {
     ]);
   });
 
+  it("shows a fourth 'Pin to X chip' option only when chipTargetOf returns a primary entity", () => {
+    const power = cellWith({ type: "custom:area-card-mushroom-entity-card", entity: "sensor.lamp_power" });
+    const standalone = cellWith({ type: "custom:area-card-mushroom-entity-card", entity: "sensor.room_air" });
+    const { root } = grid([power, standalone]);
+    const selected: Array<{ entityId: string; mode: PinMode }> = [];
+
+    syncPinToggles(root as unknown as ParentNode, {
+      editing: true,
+      modeOf: (entityId) => (entityId === "sensor.lamp_power" ? "chip" : "hidden"),
+      chipTargetOf: (entityId) =>
+        entityId === "sensor.lamp_power" ? { entityId: "light.lamp", label: "Work Lamp" } : null,
+      onSelect: (entityId, mode) => selected.push({ entityId, mode }),
+    });
+
+    const powerSwitch = power.children[0];
+    const standaloneSwitch = standalone.children[0];
+    const powerTrigger = triggerOf(powerSwitch);
+    assert.equal(powerSwitch.dataset.pinMode, "chip");
+    assert.equal(powerTrigger.getAttribute("aria-label"), "Pin to Work Lamp chip");
+    assert.equal(iconOf(powerTrigger), "mdi:subtitles-outline");
+    assert.deepEqual(menuOptions(powerSwitch), [
+      { mode: "hidden", label: "Hidden on the area card", icon: "mdi:eye-off", checked: "false" },
+      { mode: "always", label: "Always on the area card", icon: "mdi:pin", checked: "false" },
+      { mode: "when-on", label: "On the area card while on", icon: "mdi:eye-check", checked: "false" },
+      { mode: "chip", label: "Pin to Work Lamp chip", icon: "mdi:subtitles-outline", checked: "true" },
+    ]);
+    assert.deepEqual(menuOptions(standaloneSwitch), [
+      { mode: "hidden", label: "Hidden on the area card", icon: "mdi:eye-off", checked: "true" },
+      { mode: "always", label: "Always on the area card", icon: "mdi:pin", checked: "false" },
+      { mode: "when-on", label: "On the area card while on", icon: "mdi:eye-check", checked: "false" },
+    ]);
+
+    const chipOption = powerSwitch.querySelector(":scope > .area-card-pin-menu")?.children.find(
+      (option) => option.dataset.pinMode === "chip",
+    );
+    assert.equal(chipOption?.fire("click"), true);
+    assert.deepEqual(selected, [{ entityId: "sensor.lamp_power", mode: "chip" }]);
+  });
+
   it("does not match the unprefixed bubble grid class", () => {
     const light = cellWith({ type: "custom:area-card-mushroom-entity-card", entity: "light.desk" });
     const root = {

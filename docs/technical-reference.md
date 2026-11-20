@@ -147,10 +147,11 @@ Each popup section heading uses its section icon to the left of the title.
        - **`Light tint`** *(default)*: live light-color averaging background on the collapsed card.
        - **`Area picture`**: uses the area's registry picture as the collapsed card background.
        - **`Camera: <name>`**: replaces the collapsed card background with that camera's muted, autoplaying, cover-cropped live video (no play button). The still stays visible until a frame renders; the area picture stays if the camera has no stream or playback fails. The popup photo stays the area picture.
-     - **Pin menu button** on each entity row with three options (**Hidden**, **Always**, **While on** — each showing its icon and title):
-       - **Always**: keeps the row pinned under the collapsed area button.
-       - **While on**: shows the row only while that entity is on or playing, and for 2 minutes after it stops (a reload clears the 2-minute grace).
-       - Choices are stored per Home Assistant user and follow the user across browsers.
+- **Pin menu button** on each entity row with three options (**Hidden**, **Always**, **While on** — each showing its icon and title), plus a fourth **`Pin to <name> chip`** option on **Other Sensors** rows whose device has a single primary-section entity:
+  - **Always**: keeps the row pinned under the collapsed area button.
+  - **While on**: shows the row only while that entity is on or playing, and for 2 minutes after it stops (a reload clears the 2-minute grace).
+  - **Pin to `<name>` chip**: moves that sensor's reading into the primary entity's subtitle (and removes it from **Other Sensors** when not editing).
+  - Choices are stored per Home Assistant user and follow the user across browsers.
   3. **Gear icon** (left of close): opens the area's settings page (`/config/areas/area/<area_id>`).
 
 ## Floor Card & Floors Card

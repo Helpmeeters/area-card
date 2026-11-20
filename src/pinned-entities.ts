@@ -19,12 +19,14 @@ export function pinnedKey(areaId: string): string {
   return `${PINNED_KEY_PREFIX}${areaId}`;
 }
 
-export type PinMode = "hidden" | "always" | "when-on";
+export type PinMode = "hidden" | "always" | "when-on" | "chip";
 
-/** Always pins and while-on pins. An id is in at most one list. */
+/** Always pins, while-on pins, and chip-absorbed sensor pins. An id is in at most one list. */
 export interface AreaPins {
   always: string[];
   whenOn: string[];
+  /** Sensor ids pinned to their device's singular primary entity chip. */
+  chip?: string[];
   /** @deprecated Legacy camera background list; kept optional for compatibility. */
   background?: string[];
   /** Unified display order across `always` and `whenOn`. */
@@ -33,7 +35,7 @@ export interface AreaPins {
 
 const ENTITY_CYCLE: readonly PinMode[] = ["hidden", "always", "when-on"];
 
-type StoredMode = "always" | "when-on";
+type StoredMode = "always" | "when-on" | "chip";
 type LegacyStoredMode = StoredMode | "background";
 
 function emptyPins(): AreaPins {
@@ -62,7 +64,7 @@ function legacyPinEntry(entry: unknown): { id: string; mode: LegacyStoredMode } 
   const id = (entry as { id?: unknown }).id;
   const mode = (entry as { mode?: unknown }).mode;
   if (typeof id !== "string" || id.length === 0) return null;
-  if (mode === "when-on" || mode === "always" || mode === "background") return { id, mode };
+  if (mode === "when-on" || mode === "always" || mode === "chip" || mode === "background") return { id, mode };
   return null;
 }
 
@@ -127,9 +129,12 @@ export function parseAreaPins(raw: unknown): AreaPins {
   }
   const pins = emptyPins();
   const pinOrder: string[] = [];
+  const chip: string[] = [];
   for (const id of order) {
     const mode = modes.get(id);
-    if (mode === "when-on") {
+    if (mode === "chip") {
+      chip.push(id);
+    } else if (mode === "when-on") {
       pins.whenOn.push(id);
       pinOrder.push(id);
     } else {
@@ -137,6 +142,7 @@ export function parseAreaPins(raw: unknown): AreaPins {
       pinOrder.push(id);
     }
   }
+  if (chip.length > 0) pins.chip = chip;
   if (!sameIds(pinOrder, [...pins.always, ...pins.whenOn])) pins.order = pinOrder;
   return pins;
 }
@@ -172,23 +178,28 @@ export function pinnedOrder(pins: Pick<AreaPins, "always" | "whenOn" | "order">)
 /** Stored pin value. Strings only when every pin is always. */
 export function serializeAreaPins(
   pins: AreaPins,
-): Array<string | { id: string; mode: "when-on" }> {
+): Array<string | { id: string; mode: "when-on" | "chip" }> {
   const ordered = pinnedOrder(pins);
   const whenOnSet = new Set(list(pins.whenOn));
-  if (whenOnSet.size === 0) return ordered;
-  return ordered.map((id) => (whenOnSet.has(id) ? { id, mode: "when-on" as const } : id));
+  const chipPins = list(pins.chip).map((id) => ({ id, mode: "chip" as const }));
+  if (whenOnSet.size === 0 && chipPins.length === 0) return ordered;
+  const serialized: Array<string | { id: string; mode: "when-on" | "chip" }> = ordered.map((id) =>
+    whenOnSet.has(id) ? { id, mode: "when-on" as const } : id,
+  );
+  return [...serialized, ...chipPins];
 }
 
-/** Always or while on. Anything else is hidden. */
+/** Always, while on, or pinned to primary chip. Anything else is hidden. */
 export function pinMode(pins: AreaPins, entityId: string): PinMode {
   if (pins.always.includes(entityId)) return "always";
   if (pins.whenOn.includes(entityId)) return "when-on";
+  if (pins.chip?.includes(entityId)) return "chip";
   return "hidden";
 }
 
-/** All entities (including cameras) share the same pin mode choices. */
-export function pinModeChoices(_entityId: string): readonly PinMode[] {
-  return ENTITY_CYCLE;
+/** Entities share hidden/always/when-on, plus chip when eligible. */
+export function pinModeChoices(_entityId: string, hasChipTarget = false): readonly PinMode[] {
+  return hasChipTarget ? [...ENTITY_CYCLE, "chip"] : ENTITY_CYCLE;
 }
 
 /**
@@ -199,16 +210,20 @@ export function setPinMode(pins: AreaPins, entityId: string, mode: PinMode): Are
   const prevOrder = pinnedOrder(pins);
   const always = pins.always.filter((id) => id !== entityId);
   const whenOn = pins.whenOn.filter((id) => id !== entityId);
-  const next = ENTITY_CYCLE.includes(mode) ? mode : "hidden";
+  const chip = list(pins.chip).filter((id) => id !== entityId);
+  const next: PinMode =
+    mode === "always" || mode === "when-on" || mode === "chip" ? mode : "hidden";
   let order: string[];
   if (next === "always" || next === "when-on") {
     if (next === "always") always.push(entityId);
     else whenOn.push(entityId);
     order = prevOrder.includes(entityId) ? prevOrder : [...prevOrder, entityId];
   } else {
+    if (next === "chip") chip.push(entityId);
     order = prevOrder.filter((id) => id !== entityId);
   }
   const result: AreaPins = { always, whenOn, background: [] };
+  if (chip.length > 0) result.chip = chip;
   if (!sameIds(order, [...always, ...whenOn])) result.order = order;
   return result;
 }
@@ -221,6 +236,7 @@ export function reorderPins(pins: AreaPins, nextOrder: readonly string[]): AreaP
   const always = order.filter((id) => alwaysSet.has(id));
   const whenOn = order.filter((id) => whenOnSet.has(id));
   const result: AreaPins = { always, whenOn, background: [] };
+  if (pins.chip && pins.chip.length > 0) result.chip = [...pins.chip];
   if (!sameIds(order, [...always, ...whenOn])) result.order = order;
   return result;
 }

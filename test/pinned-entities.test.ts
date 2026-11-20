@@ -191,6 +191,25 @@ describe("setPinMode", () => {
     assert.equal(pinMode(stuck, "camera.webcam"), "hidden");
     assert.deepEqual(stuck, emptyPins());
   });
+
+  it("supports chip mode in parseAreaPins, serializeAreaPins, setPinMode, and pinModeChoices", () => {
+    assert.deepEqual(pinModeChoices("sensor.lamp_power", false), ["hidden", "always", "when-on"]);
+    assert.deepEqual(pinModeChoices("sensor.lamp_power", true), ["hidden", "always", "when-on", "chip"]);
+
+    const initial = setPinMode(emptyPins(), "sensor.lamp_power", "chip");
+    assert.equal(pinMode(initial, "sensor.lamp_power"), "chip");
+    assert.deepEqual(initial, { always: [], whenOn: [], background: [], chip: ["sensor.lamp_power"] });
+    assert.deepEqual(pinnedOrder(initial), []);
+
+    const withAlways = setPinMode(initial, "light.lamp", "always");
+    const serialized = serializeAreaPins(withAlways);
+    assert.deepEqual(serialized, ["light.lamp", { id: "sensor.lamp_power", mode: "chip" }]);
+    assert.deepEqual(parseAreaPins(serialized), withAlways);
+
+    const movedToAlways = setPinMode(withAlways, "sensor.lamp_power", "always");
+    assert.equal(pinMode(movedToAlways, "sensor.lamp_power"), "always");
+    assert.equal(movedToAlways.chip, undefined);
+  });
 });
 
 describe("cyclePin", () => {

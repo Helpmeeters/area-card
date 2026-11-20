@@ -155,10 +155,15 @@ function pinBackground(pins: AreaPins): readonly string[] {
   return pins.background ?? [];
 }
 
+function pinChip(pins: AreaPins): readonly string[] {
+  return pins.chip ?? [];
+}
+
 function pinsEqual(left: AreaPins, right: AreaPins): boolean {
   return (
     sameIds(left.always, right.always) &&
     sameIds(left.whenOn, right.whenOn) &&
+    sameIds(pinChip(left), pinChip(right)) &&
     sameIds(pinBackground(left), pinBackground(right)) &&
     sameIds(pinnedOrder(left), pinnedOrder(right))
   );
@@ -167,9 +172,11 @@ function pinsEqual(left: AreaPins, right: AreaPins): boolean {
 function clonePins(pins: AreaPins): AreaPins {
   const order = pinnedOrder(pins);
   const defaultOrder = [...pins.always, ...pins.whenOn];
+  const chip = pinChip(pins);
   return {
     always: [...pins.always],
     whenOn: [...pins.whenOn],
+    ...(chip.length > 0 ? { chip: [...chip] } : {}),
     background: [...pinBackground(pins)],
     ...(sameIds(order, defaultOrder) ? {} : { order }),
   };
@@ -193,7 +200,12 @@ function departsFromDefault(entry: CacheEntry): boolean {
   if (entry.kind === "battery") return entry.mode !== "off";
   if (entry.kind === "order") return Object.keys(entry.order).length > 0;
   if (entry.kind === "background") return entry.bg.mode !== "light-tint";
-  return entry.pins.always.length > 0 || entry.pins.whenOn.length > 0 || pinBackground(entry.pins).length > 0;
+  return (
+    entry.pins.always.length > 0 ||
+    entry.pins.whenOn.length > 0 ||
+    pinChip(entry.pins).length > 0 ||
+    pinBackground(entry.pins).length > 0
+  );
 }
 
 function notify(key: string): void {

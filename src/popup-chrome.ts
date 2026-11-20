@@ -63,6 +63,7 @@ export function pinSwitchStyles(): string {
     "}",
     '.area-card-pin-switch-trigger[data-pin-mode="always"],',
     '.area-card-pin-switch-trigger[data-pin-mode="when-on"],',
+    '.area-card-pin-switch-trigger[data-pin-mode="chip"],',
     '.area-card-pin-switch-trigger[data-pin-mode="background"] {',
     "  color: var(--primary-color);",
     "  opacity: 1;",

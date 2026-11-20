@@ -17,6 +17,7 @@ import { areaDotTooltipCards, tooltipPosition } from "../src/dot-tooltip";
 import { buildPopupCards, buildPopupConfig } from "../src/popup-cards";
 import { collapsedDotSlots, dotTooltipLabel, floorDotRow, iconInk, parseHideSections, ROLLUP_ORDER, rollupLabel, sectionColor, sectionHasEntities, sectionIcon, sectionRollups, sectionTitle, withoutSections, type RollupId } from "../src/rollups";
 import {
+  applyChipPins,
   areaDisplay,
   areaUnavailable,
   classifyArea,
@@ -1589,7 +1590,7 @@ describe("device sections", () => {
     );
   });
 
-  it("absorbs Other Sensors into a single main-section entity on the same device", () => {
+  it("keeps device sensors in Other Sensors by default and absorbs only chip-pinned sensors into a singular primary entity", () => {
     const h = hass({
       devices: [
         { id: "lamp", area_id: "living_room", name: "Living Room Work Lamp" },
@@ -1605,11 +1606,11 @@ describe("device sections", () => {
         { entity_id: "sensor.corner_outlet_power", device_id: "outlet" },
         { entity_id: "binary_sensor.corner_outlet_fan_is_on", device_id: "outlet" },
         { entity_id: "sensor.corner_outlet_unknown", device_id: "outlet" },
-        // Device with 2 lights in the same main section: sensors stay in Other Sensors.
+        // Device with 2 lights in the same main section: sensors stay in Other Sensors without chip target.
         { entity_id: "light.multi_a", device_id: "multi" },
         { entity_id: "light.multi_b", device_id: "multi" },
         { entity_id: "sensor.multi_power", device_id: "multi" },
-        // Device with 1 light and 1 switch across main sections: sensors stay in Other Sensors.
+        // Device with 1 light and 1 switch across main sections: sensors stay in Other Sensors without chip target.
         { entity_id: "light.mixed_lamp", device_id: "mixed" },
         { entity_id: "switch.mixed_plug", device_id: "mixed" },
         { entity_id: "sensor.mixed_power", device_id: "mixed" },
@@ -1645,7 +1646,32 @@ describe("device sections", () => {
       },
     });
 
-    const sections = classifyArea(h, "living_room");
+    const classified = classifyArea(h, "living_room");
+    // By default, all sensors remain in Other Sensors grouped by device.
+    assert.equal(classified.deviceSensors, undefined);
+    assert.equal(classified.sensorDevices?.["sensor.work_lamp_power"]?.id, "lamp");
+    assert.equal(classified.sensorDevices?.["sensor.multi_power"]?.id, "multi");
+    assert.deepEqual(classified.sensorChipTargets, {
+      "sensor.work_lamp_power": "light.den_work_lamp",
+      "sensor.work_lamp_energy": "light.den_work_lamp",
+      "sensor.corner_outlet_power": "switch.corner_outlet",
+      "binary_sensor.corner_outlet_fan_is_on": "switch.corner_outlet",
+      "sensor.corner_outlet_unknown": "switch.corner_outlet",
+    });
+
+    // Pinning those sensors to their singular primary entity's chip absorbs them into deviceSensors.
+    const sections = applyChipPins(
+      classified,
+      [
+        "sensor.work_lamp_power",
+        "sensor.work_lamp_energy",
+        "sensor.corner_outlet_power",
+        "binary_sensor.corner_outlet_fan_is_on",
+        "sensor.corner_outlet_unknown",
+        "sensor.multi_power",
+      ],
+      h.states,
+    );
     assert.deepEqual(sections.sensors, ["sensor.mixed_power", "sensor.multi_power"]);
     assert.deepEqual(sections.deviceSensors, {
       "light.den_work_lamp": ["sensor.work_lamp_energy", "sensor.work_lamp_power"],
@@ -1657,6 +1683,13 @@ describe("device sections", () => {
     });
     assert.equal(sections.sensorDevices?.["sensor.work_lamp_power"], undefined);
     assert.equal(sections.sensorDevices?.["sensor.multi_power"]?.id, "multi");
+
+    // In edit mode (keepInSensors = true), they stay in Other Sensors as well so they can be unpinned.
+    const editingSections = applyChipPins(classified, ["sensor.work_lamp_power"], h.states, true);
+    assert.equal(editingSections.sensors.includes("sensor.work_lamp_power"), true);
+    assert.deepEqual(editingSections.deviceSensors, {
+      "light.den_work_lamp": ["sensor.work_lamp_power"],
+    });
 
     const cards = buildPopupCards(sections, h.states, "Living Room");
     const lampCard = cards.find((card) => card.entity === "light.den_work_lamp");
@@ -1679,6 +1712,8 @@ describe("device sections", () => {
 
     const hiddenLights = withoutSections(sections, ["lights"]);
     assert.equal(hiddenLights.deviceSensors?.["light.den_work_lamp"], undefined);
+    assert.equal(hiddenLights.sensorChipTargets?.["sensor.work_lamp_power"], undefined);
+    assert.equal(hiddenLights.sensorChipTargets?.["sensor.corner_outlet_power"], "switch.corner_outlet");
     assert.deepEqual(hiddenLights.deviceSensors?.["switch.corner_outlet"], [
       "sensor.corner_outlet_power",
       "sensor.corner_outlet_unknown",
@@ -1690,7 +1725,7 @@ describe("device sections", () => {
     assert.notEqual(keyBefore, keyAfter);
   });
 
-  it("removes Other Sensors section and dot when all sensors are absorbed into main entities", () => {
+  it("removes Other Sensors section and dot when all sensors are pinned to main entity chips", () => {
     const h = hass({
       devices: [{ id: "bulb", area_id: "hall", name: "Hall Overhead 1" }],
       entities: [
@@ -1710,7 +1745,16 @@ describe("device sections", () => {
         }),
       },
     });
-    const sections = classifyArea(h, "hall");
+    const classified = classifyArea(h, "hall");
+    assert.deepEqual(classified.sensors, [
+      "sensor.hall_overhead_1_energy",
+      "sensor.hall_overhead_1_power",
+    ]);
+    const sections = applyChipPins(
+      classified,
+      ["sensor.hall_overhead_1_energy", "sensor.hall_overhead_1_power"],
+      h.states,
+    );
     assert.deepEqual(sections.sensors, []);
     assert.deepEqual(sections.deviceSensors, {
       "light.hall_overhead_1": ["sensor.hall_overhead_1_energy", "sensor.hall_overhead_1_power"],

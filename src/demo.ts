@@ -4,7 +4,7 @@ import { averageLightColor, type RgbColor } from "./light-tint";
 import { buildPopupConfig } from "./popup-cards";
 import { areaPresenceInfo, formatPresenceBadge } from "./presence";
 import { collapsedDotSlots, parseHideSections, ROLLUP_ORDER, sectionRollups, sectionTitle, withoutSections, type RollupId, type SectionRollup } from "./rollups";
-import { areaDisplay, classifyArea, type AreaSections, type ClassifierHass, type EntityState } from "./sections";
+import { applyChipPins, areaDisplay, classifyArea, type AreaSections, type ClassifierHass, type EntityState } from "./sections";
 
 /** Stable id for the demo popup hash (`#area-demo`). Not a Home Assistant area. */
 export const DEMO_AREA_ID = "demo";
@@ -71,6 +71,8 @@ export interface PresentAreaOptions {
   presenceBadge?: PresenceBadge | null;
   unavailable?: boolean;
   entityOrder?: AreaEntityOrder;
+  chipPins?: readonly string[];
+  keepChipSensorsInList?: boolean;
 }
 
 export interface AreaPresentation {
@@ -167,7 +169,12 @@ export function presentArea(
 ): AreaPresentation {
   const content = contentFor(config, hass);
   const sections = applyEntityOrderToSections(
-    withoutSections(content.sections, config.hide_sections),
+    applyChipPins(
+      withoutSections(content.sections, config.hide_sections),
+      options.chipPins,
+      content.states,
+      options.keepChipSensorsInList,
+    ),
     options.entityOrder,
   );
   const disabled = options.disabledAutomations ?? new Set<string>();

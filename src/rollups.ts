@@ -322,17 +322,28 @@ export function withoutSections(sections: AreaSections, hide: readonly RollupId[
   if (hide.length === 0) return sections;
   const result: AreaSections = { ...sections };
   const dropDeviceSensors = (ids: readonly string[]) => {
-    if (!result.deviceSensors || ids.length === 0) return;
-    const next = { ...result.deviceSensors };
-    let changed = false;
-    for (const id of ids) {
-      if (id in next) {
-        delete next[id];
-        changed = true;
+    if (ids.length === 0) return;
+    const dropSet = new Set(ids);
+    if (result.deviceSensors) {
+      const next = { ...result.deviceSensors };
+      let changed = false;
+      for (const id of ids) {
+        if (id in next) {
+          delete next[id];
+          changed = true;
+        }
       }
+      if (changed) result.deviceSensors = Object.keys(next).length > 0 ? next : undefined;
     }
-    if (!changed) return;
-    result.deviceSensors = Object.keys(next).length > 0 ? next : undefined;
+    if (result.sensorChipTargets) {
+      const nextTargets: Record<string, string> = {};
+      let changed = false;
+      for (const [sensorId, targetId] of Object.entries(result.sensorChipTargets)) {
+        if (dropSet.has(targetId)) changed = true;
+        else nextTargets[sensorId] = targetId;
+      }
+      if (changed) result.sensorChipTargets = Object.keys(nextTargets).length > 0 ? nextTargets : undefined;
+    }
   };
   for (const id of hide) {
     switch (id) {
@@ -346,7 +357,11 @@ export function withoutSections(sections: AreaSections, hide: readonly RollupId[
       case "satellites": result.satellites = []; break;
       case "helpers": result.helpers = []; result.selects = []; break;
       case "automations": result.automations = []; break;
-      case "sensors": result.sensors = []; result.sensorDevices = undefined; break;
+      case "sensors":
+        result.sensors = [];
+        result.sensorDevices = undefined;
+        result.sensorChipTargets = undefined;
+        break;
       case "locks": dropDeviceSensors(result.locks); result.locks = []; break;
       case "vacuums": dropDeviceSensors(result.vacuums); result.vacuums = []; break;
       case "buttons": result.buttons = []; break;

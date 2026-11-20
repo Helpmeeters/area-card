@@ -8,13 +8,26 @@ const PIN_ICONS: Record<PinMode, string> = {
   hidden: "mdi:eye-off",
   always: "mdi:pin",
   "when-on": "mdi:eye-check",
+  chip: "mdi:subtitles-outline",
 };
 
-const PIN_LABELS: Record<PinMode, string> = {
+const PIN_LABELS: Record<Exclude<PinMode, "chip">, string> = {
   hidden: "Hidden on the area card",
   always: "Always on the area card",
   "when-on": "On the area card while on",
 };
+
+export interface PinChipTarget {
+  entityId: string;
+  label: string;
+}
+
+function pinLabel(mode: PinMode, chipTarget: PinChipTarget | null): string {
+  if (mode === "chip") {
+    return chipTarget ? `Pin to ${chipTarget.label} chip` : "Pin to primary chip";
+  }
+  return PIN_LABELS[mode];
+}
 
 interface PinControl extends HTMLElement {
   pinSelect?: (entityId: string, mode: PinMode) => void;
@@ -200,24 +213,25 @@ function toggleMenu(control: HTMLElement, trigger: HTMLElement, menu: PinMenu): 
   else showMenu(control, trigger, menu);
 }
 
-function showPinMode(control: PinControl, mode: PinMode): void {
-  control.dataset.pinMode = mode;
+function showPinMode(control: PinControl, mode: PinMode, chipTarget: PinChipTarget | null): void {
+  const effectiveMode: PinMode = mode === "chip" && !chipTarget ? "hidden" : mode;
+  control.dataset.pinMode = effectiveMode;
   const trigger = triggerOf(control);
   if (!trigger) return;
-  const label = PIN_LABELS[mode];
-  trigger.dataset.pinMode = mode;
+  const label = pinLabel(effectiveMode, chipTarget);
+  trigger.dataset.pinMode = effectiveMode;
   trigger.setAttribute("aria-label", label);
   trigger.setAttribute("title", label);
   trigger.title = label;
-  trigger.querySelector("ha-icon")?.setAttribute("icon", PIN_ICONS[mode]);
+  trigger.querySelector("ha-icon")?.setAttribute("icon", PIN_ICONS[effectiveMode]);
   const menu = menuOf(control);
   if (!menu) return;
   for (const option of menu.querySelectorAll<HTMLElement>(":scope > .area-card-pin-option")) {
-    option.setAttribute("aria-checked", option.dataset.pinMode === mode ? "true" : "false");
+    option.setAttribute("aria-checked", option.dataset.pinMode === effectiveMode ? "true" : "false");
   }
 }
 
-function createOption(control: PinControl, mode: PinMode): HTMLButtonElement {
+function createOption(control: PinControl, mode: PinMode, chipTarget: PinChipTarget | null): HTMLButtonElement {
   const option = document.createElement("button");
   option.type = "button";
   option.className = "area-card-pin-option";
@@ -229,7 +243,7 @@ function createOption(control: PinControl, mode: PinMode): HTMLButtonElement {
   icon.setAttribute("aria-hidden", "true");
   const label = document.createElement("span");
   label.className = "area-card-pin-option-label";
-  label.textContent = PIN_LABELS[mode];
+  label.textContent = pinLabel(mode, chipTarget);
   option.append(icon, label);
   option.addEventListener("click", (event) => {
     event.stopPropagation();
@@ -242,16 +256,21 @@ function createOption(control: PinControl, mode: PinMode): HTMLButtonElement {
   return option;
 }
 
-function syncOptions(control: PinControl, entityId: string): void {
+function syncOptions(control: PinControl, entityId: string, chipTarget: PinChipTarget | null): void {
   const menu = menuOf(control);
   if (!menu) return;
-  const modes = pinModeChoices(entityId);
+  const modes = pinModeChoices(entityId, Boolean(chipTarget));
   const options = [...menu.querySelectorAll<HTMLElement>(":scope > .area-card-pin-option")];
   const same =
-    options.length === modes.length && options.every((option, index) => option.dataset.pinMode === modes[index]);
+    options.length === modes.length &&
+    options.every(
+      (option, index) =>
+        option.dataset.pinMode === modes[index] &&
+        option.querySelector("span")?.textContent === pinLabel(modes[index], chipTarget),
+    );
   if (same) return;
   for (const option of options) option.remove();
-  for (const mode of modes) menu.append(createOption(control, mode));
+  for (const mode of modes) menu.append(createOption(control, mode, chipTarget));
 }
 
 function moveOptionFocus(menu: HTMLElement, key: string, current: EventTarget | null): void {
@@ -340,6 +359,7 @@ export function syncPinToggles(
     editing: boolean;
     modeOf: (entityId: string) => PinMode;
     onSelect: (entityId: string, mode: PinMode) => void;
+    chipTargetOf?: (entityId: string) => PinChipTarget | null;
   },
 ): void {
   ensurePinStyles(root);
@@ -363,9 +383,10 @@ export function syncPinToggles(
       if (extra !== control) extra.remove();
     }
 
+    const chipTarget = options.chipTargetOf?.(entityId) ?? null;
     control.dataset.pinEntity = entityId;
     control.pinSelect = options.onSelect;
-    syncOptions(control, entityId);
-    showPinMode(control, options.modeOf(entityId));
+    syncOptions(control, entityId, chipTarget);
+    showPinMode(control, options.modeOf(entityId), chipTarget);
   }
 }

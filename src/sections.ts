@@ -112,6 +112,8 @@ export interface AreaSections {
   automations: string[];
   sensors: string[];
   sensorDevices?: Record<string, SensorDeviceRef>;
+  /** Sensors in Other Sensors on a device with a single main-section entity (`sensorId -> mainEntityId`). */
+  sensorChipTargets?: Record<string, string>;
   /** Other Sensors absorbed into a single main-section entity on the same device. */
   deviceSensors?: Record<string, string[]>;
   locks: string[];
@@ -396,7 +398,7 @@ export function classifyArea(hass: ClassifierHass, areaId: string): AreaSections
   appendNamedAutomations(hass, areaId, allEntries, states, sections);
   appendSatelliteMediaPlayers(sections, allEntries, devices, states);
   dropPlayersShownOnKioskCard(sections, allEntries, states);
-  absorbSingleDeviceSensors(sections, entries, sensorDevices, states);
+  collectSingleDeviceSensorTargets(sections, entries);
 
   sections.climate = sortIds(sections.climate, states);
   sections.lights = sortIds(sections.lights, states);
@@ -447,6 +449,10 @@ export function membershipKey(areaId: string, name: string, icon: string, sectio
     .sort()
     .map((entityId) => `${entityId}=${(sections.deviceSensors![entityId] ?? []).join(",")}`)
     .join(";");
+  const chipTargets = Object.keys(sections.sensorChipTargets ?? {})
+    .sort()
+    .map((sensorId) => `${sensorId}=${sections.sensorChipTargets![sensorId] ?? ""}`)
+    .join(";");
   return [
     areaId,
     name,
@@ -465,6 +471,7 @@ export function membershipKey(areaId: string, name: string, icon: string, sectio
     sections.selects.join(","),
     sections.automations.join(","),
     sensorDevs,
+    chipTargets,
     deviceSensors,
     sections.locks.join(","),
     sections.vacuums.join(","),
@@ -474,11 +481,9 @@ export function membershipKey(areaId: string, name: string, icon: string, sectio
   ].join("|");
 }
 
-function absorbSingleDeviceSensors(
+function collectSingleDeviceSensorTargets(
   sections: AreaSections,
   entries: readonly RegistryEntry[],
-  sensorDevices: Record<string, SensorDeviceRef>,
-  states: Record<string, EntityState>,
 ): void {
   if (sections.sensors.length === 0) return;
   const entryById = new Map(entries.map((entry) => [entry.entity_id, entry]));
@@ -502,26 +507,69 @@ function absorbSingleDeviceSensors(
     else mainByDevice.set(deviceId, [id]);
   }
 
-  const absorbed = new Set<string>();
-  const deviceSensors: Record<string, string[]> = {};
+  const targets: Record<string, string> = {};
   for (const sensorId of sections.sensors) {
     const deviceId = entryById.get(sensorId)?.device_id;
     if (!deviceId) continue;
     const mains = mainByDevice.get(deviceId);
     if (!mains || mains.length !== 1) continue;
-    const targetId = mains[0];
+    targets[sensorId] = mains[0];
+  }
+  if (Object.keys(targets).length > 0) sections.sensorChipTargets = targets;
+}
+
+/**
+ * Absorb sensors pinned to their device's singular primary entity chip into `deviceSensors`.
+ * By default, sensors remain in `sections.sensors` (Other Sensors, grouped by device).
+ * When `keepInSensors` is true (e.g. while editing pins), the sensors also stay in `sections.sensors`
+ * so the user can un-pin them from the primary chip.
+ */
+export function applyChipPins(
+  sections: AreaSections,
+  chipIds: readonly string[] | undefined,
+  states: Record<string, EntityState> = {},
+  keepInSensors = false,
+): AreaSections {
+  const targets = sections.sensorChipTargets;
+  if (!targets || !chipIds || chipIds.length === 0) return sections;
+  const pinned = new Set(chipIds);
+  const absorbed = new Set<string>();
+  const deviceSensors: Record<string, string[]> = {};
+  if (sections.deviceSensors) {
+    for (const [targetId, list] of Object.entries(sections.deviceSensors)) {
+      deviceSensors[targetId] = [...list];
+    }
+  }
+  for (const sensorId of sections.sensors) {
+    if (!pinned.has(sensorId)) continue;
+    const targetId = targets[sensorId];
+    if (!targetId) continue;
     absorbed.add(sensorId);
     if (!deviceSensors[targetId]) deviceSensors[targetId] = [];
-    deviceSensors[targetId].push(sensorId);
+    if (!deviceSensors[targetId].includes(sensorId)) deviceSensors[targetId].push(sensorId);
   }
-
-  if (absorbed.size === 0) return;
-  sections.sensors = sections.sensors.filter((id) => !absorbed.has(id));
-  for (const sensorId of absorbed) delete sensorDevices[sensorId];
+  if (absorbed.size === 0) return sections;
   for (const targetId of Object.keys(deviceSensors)) {
     deviceSensors[targetId] = sortIds(deviceSensors[targetId], states);
   }
-  sections.deviceSensors = deviceSensors;
+  if (keepInSensors) {
+    return { ...sections, deviceSensors };
+  }
+  const sensors = sections.sensors.filter((id) => !absorbed.has(id));
+  let sensorDevices: Record<string, SensorDeviceRef> | undefined;
+  if (sections.sensorDevices) {
+    const nextDevices: Record<string, SensorDeviceRef> = {};
+    for (const [id, ref] of Object.entries(sections.sensorDevices)) {
+      if (!absorbed.has(id)) nextDevices[id] = ref;
+    }
+    if (Object.keys(nextDevices).length > 0) sensorDevices = nextDevices;
+  }
+  return {
+    ...sections,
+    sensors,
+    sensorDevices,
+    deviceSensors,
+  };
 }
 
 function appendNamedAutomations(
