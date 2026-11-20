@@ -31,6 +31,8 @@ export interface AreaPins {
   background?: string[];
   /** Unified display order across `always` and `whenOn`. */
   order?: string[];
+  /** Half-width entities released from auto-pairing (rendered on their own row). */
+  solo?: string[];
 }
 
 const ENTITY_CYCLE: readonly PinMode[] = ["hidden", "always", "when-on"];
@@ -58,20 +60,23 @@ export function isCameraEntity(entityId: string): boolean {
   return entityId.split(".")[0] === "camera";
 }
 
-function legacyPinEntry(entry: unknown): { id: string; mode: LegacyStoredMode } | null {
+function legacyPinEntry(entry: unknown): { id: string; mode: LegacyStoredMode; solo?: boolean } | null {
   if (typeof entry === "string") return entry.length > 0 ? { id: entry, mode: "always" } : null;
   if (typeof entry !== "object" || entry === null || Array.isArray(entry)) return null;
   const id = (entry as { id?: unknown }).id;
   const mode = (entry as { mode?: unknown }).mode;
+  const solo = (entry as { solo?: unknown }).solo === true;
   if (typeof id !== "string" || id.length === 0) return null;
-  if (mode === "when-on" || mode === "always" || mode === "chip" || mode === "background") return { id, mode };
+  if (mode === "when-on" || mode === "always" || mode === "chip" || mode === "background") {
+    return solo ? { id, mode, solo: true } : { id, mode };
+  }
   return null;
 }
 
-function pinEntry(entry: unknown): { id: string; mode: StoredMode } | null {
+function pinEntry(entry: unknown): { id: string; mode: StoredMode; solo?: boolean } | null {
   const parsed = legacyPinEntry(entry);
   if (!parsed || parsed.mode === "background") return null;
-  return { id: parsed.id, mode: parsed.mode };
+  return parsed.solo ? { id: parsed.id, mode: parsed.mode, solo: true } : { id: parsed.id, mode: parsed.mode };
 }
 
 function parseRawArray(raw: unknown): unknown[] | null {
@@ -120,16 +125,20 @@ export function parseAreaPins(raw: unknown): AreaPins {
   const parsed = parseRawArray(raw);
   if (!parsed) return emptyPins();
   const modes = new Map<string, StoredMode>();
+  const solos = new Set<string>();
   const order: string[] = [];
   for (const entry of parsed) {
     const pin = pinEntry(entry);
     if (!pin) continue;
     if (!modes.has(pin.id)) order.push(pin.id);
     modes.set(pin.id, pin.mode);
+    if (pin.solo) solos.add(pin.id);
+    else solos.delete(pin.id);
   }
   const pins = emptyPins();
   const pinOrder: string[] = [];
   const chip: string[] = [];
+  const solo: string[] = [];
   for (const id of order) {
     const mode = modes.get(id);
     if (mode === "chip") {
@@ -137,12 +146,15 @@ export function parseAreaPins(raw: unknown): AreaPins {
     } else if (mode === "when-on") {
       pins.whenOn.push(id);
       pinOrder.push(id);
+      if (solos.has(id)) solo.push(id);
     } else {
       pins.always.push(id);
       pinOrder.push(id);
+      if (solos.has(id)) solo.push(id);
     }
   }
   if (chip.length > 0) pins.chip = chip;
+  if (solo.length > 0) pins.solo = solo;
   if (!sameIds(pinOrder, [...pins.always, ...pins.whenOn])) pins.order = pinOrder;
   return pins;
 }
@@ -175,16 +187,23 @@ export function pinnedOrder(pins: Pick<AreaPins, "always" | "whenOn" | "order">)
   return result;
 }
 
-/** Stored pin value. Strings only when every pin is always. */
+/** Stored pin value. Strings only when every pin is always and none are solo. */
 export function serializeAreaPins(
   pins: AreaPins,
-): Array<string | { id: string; mode: "when-on" | "chip" }> {
+): Array<string | { id: string; mode: "always" | "when-on" | "chip"; solo?: true }> {
   const ordered = pinnedOrder(pins);
   const whenOnSet = new Set(list(pins.whenOn));
+  const soloSet = new Set(list(pins.solo));
   const chipPins = list(pins.chip).map((id) => ({ id, mode: "chip" as const }));
-  if (whenOnSet.size === 0 && chipPins.length === 0) return ordered;
-  const serialized: Array<string | { id: string; mode: "when-on" | "chip" }> = ordered.map((id) =>
-    whenOnSet.has(id) ? { id, mode: "when-on" as const } : id,
+  if (whenOnSet.size === 0 && chipPins.length === 0 && soloSet.size === 0) return ordered;
+  const serialized: Array<string | { id: string; mode: "always" | "when-on" | "chip"; solo?: true }> = ordered.map(
+    (id) => {
+      const isWhenOn = whenOnSet.has(id);
+      const isSolo = soloSet.has(id);
+      if (!isSolo && !isWhenOn) return id;
+      if (!isSolo && isWhenOn) return { id, mode: "when-on" as const };
+      return { id, mode: isWhenOn ? ("when-on" as const) : ("always" as const), solo: true as const };
+    },
   );
   return [...serialized, ...chipPins];
 }
@@ -214,6 +233,7 @@ export function setPinMode(pins: AreaPins, entityId: string, mode: PinMode): Are
   const next: PinMode =
     mode === "always" || mode === "when-on" || mode === "chip" ? mode : "hidden";
   let order: string[];
+  let solo = list(pins.solo);
   if (next === "always" || next === "when-on") {
     if (next === "always") always.push(entityId);
     else whenOn.push(entityId);
@@ -221,22 +241,33 @@ export function setPinMode(pins: AreaPins, entityId: string, mode: PinMode): Are
   } else {
     if (next === "chip") chip.push(entityId);
     order = prevOrder.filter((id) => id !== entityId);
+    solo = solo.filter((id) => id !== entityId);
   }
+  const valid = new Set([...always, ...whenOn]);
+  solo = solo.filter((id) => valid.has(id));
   const result: AreaPins = { always, whenOn, background: [] };
   if (chip.length > 0) result.chip = chip;
+  if (solo.length > 0) result.solo = solo;
   if (!sameIds(order, [...always, ...whenOn])) result.order = order;
   return result;
 }
 
 /** Reorder `always` and `whenOn` pins according to `nextOrder`. Any missing pinned ids are appended. */
-export function reorderPins(pins: AreaPins, nextOrder: readonly string[]): AreaPins {
+export function reorderPins(
+  pins: AreaPins,
+  nextOrder: readonly string[],
+  nextSolo?: readonly string[],
+): AreaPins {
   const alwaysSet = new Set(pins.always);
   const whenOnSet = new Set(pins.whenOn);
   const order = pinnedOrder({ always: pins.always, whenOn: pins.whenOn, order: [...nextOrder] });
   const always = order.filter((id) => alwaysSet.has(id));
   const whenOn = order.filter((id) => whenOnSet.has(id));
+  const valid = new Set(order);
+  const solo = (nextSolo !== undefined ? [...nextSolo] : list(pins.solo)).filter((id) => valid.has(id));
   const result: AreaPins = { always, whenOn, background: [] };
   if (pins.chip && pins.chip.length > 0) result.chip = [...pins.chip];
+  if (solo.length > 0) result.solo = [...new Set(solo)];
   if (!sameIds(order, [...always, ...whenOn])) result.order = order;
   return result;
 }
@@ -483,7 +514,16 @@ function isHalfWidthPinnedCard(config: Record<string, unknown>): boolean {
  * card alone. A full-width card takes its own row. A half left without a partner
  * expands. Card objects are returned as-is so the popup keeps `grid_options.columns === 6`.
  */
-export function layoutPinnedCards(cards: readonly Record<string, unknown>[]): PinnedLayoutRow[] {
+export function layoutPinnedCards(
+  cards: readonly Record<string, unknown>[],
+  soloIds?: ReadonlySet<string> | readonly string[],
+): PinnedLayoutRow[] {
+  const soloSet = soloIds instanceof Set ? soloIds : new Set(soloIds ?? []);
+  const isAutoPairable = (config: Record<string, unknown>): boolean => {
+    if (!isHalfWidthPinnedCard(config)) return false;
+    const id = pinEntityId(config);
+    return !id || !soloSet.has(id);
+  };
   const rows: PinnedLayoutRow[] = [];
   const consumed = new Array<boolean>(cards.length).fill(false);
   for (let index = 0; index < cards.length; index += 1) {
@@ -493,9 +533,13 @@ export function layoutPinnedCards(cards: readonly Record<string, unknown>[]): Pi
       rows.push({ cards: [{ config, width: "full" }] });
       continue;
     }
+    if (!isAutoPairable(config)) {
+      rows.push({ cards: [{ config, width: "expanded-full" }] });
+      continue;
+    }
     let partnerIndex = -1;
     for (let lookahead = index + 1; lookahead < cards.length; lookahead += 1) {
-      if (!consumed[lookahead] && isHalfWidthPinnedCard(cards[lookahead])) {
+      if (!consumed[lookahead] && isAutoPairable(cards[lookahead])) {
         partnerIndex = lookahead;
         break;
       }

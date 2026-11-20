@@ -712,4 +712,30 @@ describe("reorderPins and unified order", () => {
     const toggled = setPinMode(initial, "media_player.tv", "always");
     assert.deepEqual(pinnedOrder(toggled), ["light.a", "media_player.tv", "switch.b"]);
   });
+
+  it("persists solo flags on pins and excludes solo cards from auto-pairing while letting new half-width pins fill blanks", () => {
+    const initial: AreaPins = {
+      always: ["light.a", "light.b"],
+      whenOn: [],
+      background: [],
+    };
+    const withSolo = reorderPins(initial, ["light.b", "light.a"], ["light.a"]);
+    assert.deepEqual(withSolo.solo, ["light.a"]);
+
+    const serialized = serializeAreaPins(withSolo);
+    assert.deepEqual(serialized, ["light.b", { id: "light.a", mode: "always", solo: true }]);
+    assert.deepEqual(parseAreaPins(serialized), withSolo);
+
+    // A newly pinned half-width card (light.c) fills the blank next to light.b,
+    // while light.a stays on its own solo row.
+    const withNew = setPinMode(withSolo, "light.c", "always");
+    const cards = [pinnedCard("light.b", 6), pinnedCard("light.a", 6), pinnedCard("light.c", 6)];
+    const rows = layoutPinnedCards(cards, withNew.solo);
+    assert.deepEqual(layoutEntities(rows), [["light.b", "light.c"], ["light.a"]]);
+    assert.deepEqual(layoutWidths(rows), [["half", "half"], ["expanded-full"]]);
+
+    // Unpinning light.a clears its solo flag
+    const unpinned = setPinMode(withNew, "light.a", "hidden");
+    assert.equal(unpinned.solo, undefined);
+  });
 });

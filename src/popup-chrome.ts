@@ -34,7 +34,7 @@ export function pinSwitchStyles(): string {
     "  align-items: center;",
     "  gap: 8px;",
     "}",
-    `.${BUBBLE_CARDS_GRID} > .card:has(> .area-card-pin-switch) > :not(.area-card-pin-switch):not(.area-card-battery-readout):not(.area-card-drag-handle) {`,
+    `.${BUBBLE_CARDS_GRID} > .card:has(> .area-card-pin-switch) > :not(.area-card-pin-switch):not(.area-card-battery-readout) {`,
     "  flex: 1 1 auto;",
     "  min-width: 0;",
     "}",

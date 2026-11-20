@@ -159,11 +159,16 @@ function pinChip(pins: AreaPins): readonly string[] {
   return pins.chip ?? [];
 }
 
+function pinSolo(pins: AreaPins): readonly string[] {
+  return pins.solo ?? [];
+}
+
 function pinsEqual(left: AreaPins, right: AreaPins): boolean {
   return (
     sameIds(left.always, right.always) &&
     sameIds(left.whenOn, right.whenOn) &&
     sameIds(pinChip(left), pinChip(right)) &&
+    sameIds(pinSolo(left), pinSolo(right)) &&
     sameIds(pinBackground(left), pinBackground(right)) &&
     sameIds(pinnedOrder(left), pinnedOrder(right))
   );
@@ -173,10 +178,12 @@ function clonePins(pins: AreaPins): AreaPins {
   const order = pinnedOrder(pins);
   const defaultOrder = [...pins.always, ...pins.whenOn];
   const chip = pinChip(pins);
+  const solo = pinSolo(pins);
   return {
     always: [...pins.always],
     whenOn: [...pins.whenOn],
     ...(chip.length > 0 ? { chip: [...chip] } : {}),
+    ...(solo.length > 0 ? { solo: [...solo] } : {}),
     background: [...pinBackground(pins)],
     ...(sameIds(order, defaultOrder) ? {} : { order }),
   };

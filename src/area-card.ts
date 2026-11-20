@@ -46,7 +46,7 @@ import "./camera-row";
 import "./device-row";
 import "./light-row";
 import "./section-title";
-import { entityScopeMap, setScopeEntityOrder } from "./entity-order";
+import { entityScopeMap, setScopeEntityOrder, type AreaEntityOrder } from "./entity-order";
 import {
   layoutPinnedCards,
   pinEntityId,
@@ -60,12 +60,14 @@ import {
   pinnedSideBySideHostStyles,
   pinnedSideBySideStyles,
   selectPinnedCards,
+  type AreaPins,
   type PinMode,
   type PinnedEdge,
   type PinnedLayoutWidth,
 } from "./pinned-entities";
 import { syncPinToggles } from "./pin-toggles";
 import {
+  isPopupDragActive,
   syncCardBackgroundSection,
   syncPinOrderSection,
   syncPopupEditGuards,
@@ -373,6 +375,10 @@ class AreaCard extends HTMLElement {
   private resizeTimer = 0;
   private lastViewport = 0;
   private unsubscribeUserData?: () => void;
+  private pendingPins = new Map<string, { pins: AreaPins; seq: number }>();
+  private pendingPinSeq = 0;
+  private pendingEntityOrder = new Map<string, { order: AreaEntityOrder; seq: number }>();
+  private pendingOrderSeq = 0;
   private readonly onResize = () => {
     const width = window.innerWidth;
     if (width === this.lastViewport) return;
@@ -412,6 +418,14 @@ class AreaCard extends HTMLElement {
     const config = this._config;
     if (!config) return "";
     return config.demo ? DEMO_AREA_ID : config.area;
+  }
+
+  private effectivePins(areaId: string): AreaPins {
+    return this.pendingPins.get(areaId)?.pins ?? cachedPins(areaId);
+  }
+
+  private effectiveEntityOrder(areaId: string): AreaEntityOrder {
+    return this.pendingEntityOrder.get(areaId)?.order ?? cachedEntityOrder(areaId);
   }
 
   get hass(): ClassifierHass | undefined {
@@ -556,8 +570,8 @@ class AreaCard extends HTMLElement {
       shownPicture,
       lightTint: this.pinnedRowsVisible ? null : this.resolvedLightTint,
       unavailable,
-      entityOrder: cachedEntityOrder(seeded.areaId),
-      chipPins: cachedPins(seeded.areaId).chip,
+      entityOrder: this.effectiveEntityOrder(seeded.areaId),
+      chipPins: this.effectivePins(seeded.areaId).chip,
       keepChipSensorsInList: this.pinEditing,
     });
     const areaId = view.content.areaId;
@@ -568,7 +582,7 @@ class AreaCard extends HTMLElement {
     const signature = membershipKey(areaId, name, icon, sections);
     this.entityScopes = entityScopeMap(visibleSections);
     this.sensorChipTargets = visibleSections.sensorChipTargets ?? {};
-    this.lastChipKey = (cachedPins(areaId).chip ?? []).slice().sort().join(",");
+    this.lastChipKey = (this.effectivePins(areaId).chip ?? []).slice().sort().join(",");
     this.dotRollups = view.rollups;
     const frigateRefs = demo ? [] : getFrigateCameraRefs(visibleSections.cameras, states);
     if (frigateRefs.length > 0) {
@@ -642,7 +656,8 @@ class AreaCard extends HTMLElement {
       this.buttonEl.setConfig?.(buttonConfig);
       this.buttonKey = buttonKey;
     }
-    if (this.popupKey !== popupKey) {
+    const popupDragging = Boolean(this.popupEl?.shadowRoot && isPopupDragActive(this.popupEl.shadowRoot));
+    if (this.popupKey !== popupKey && !popupDragging) {
       this.popupEl.setConfig?.(popupConfig);
       this.popupKey = popupKey;
     }
@@ -837,7 +852,7 @@ class AreaCard extends HTMLElement {
       syncPinToggles(root, {
         editing: this.pinEditing,
         modeOf: (entityId) => {
-          const mode = pinMode(cachedPins(areaId), entityId);
+          const mode = pinMode(this.effectivePins(areaId), entityId);
           if (mode === "chip" && !this.sensorChipTargets[entityId]) return "hidden";
           return mode;
         },
@@ -865,10 +880,10 @@ class AreaCard extends HTMLElement {
         });
         syncPinOrderSection(root, {
           editing: this.pinEditing,
-          pins: cachedPins(areaId),
+          pins: this.effectivePins(areaId),
           popupCards: this.popupCards,
           hass: this._hass,
-          onReorderPins: (nextOrder) => this.pinsReordered(areaId, nextOrder),
+          onReorderPins: (nextOrder, nextSolo) => this.pinsReordered(areaId, nextOrder, nextSolo),
         });
       }
       syncSectionDragOrder(root, {
@@ -941,33 +956,49 @@ class AreaCard extends HTMLElement {
   private pinSelected(areaId: string, entityId: string, mode: PinMode): void {
     const hass = this._hass;
     if (!hass || this.boundAreaId() !== areaId) return;
-    const current = cachedPins(areaId);
+    const current = this.effectivePins(areaId);
     if (pinMode(current, entityId) === mode) return;
     const next = setPinMode(current, entityId, mode);
+    const seq = (this.pendingPinSeq += 1);
+    this.pendingPins.set(areaId, { pins: next, seq });
+    this.syncPinnedRow(hass, areaId);
+    this.applyAreaEdit();
     void saveAreaPins(hass, areaId, next).then(
       () => {
+        if (this.pendingPins.get(areaId)?.seq === seq) this.pendingPins.delete(areaId);
         if (this._hass !== hass || this.boundAreaId() !== areaId) return;
         this.syncPinnedRow(hass, areaId);
         this.applyAreaEdit();
       },
       () => {
-        // A rejected save leaves the cache and the on-screen mode unchanged.
+        if (this.pendingPins.get(areaId)?.seq === seq) this.pendingPins.delete(areaId);
+        if (this._hass !== hass || this.boundAreaId() !== areaId) return;
+        this.syncPinnedRow(hass, areaId);
+        this.applyAreaEdit();
       },
     );
   }
 
-  private pinsReordered(areaId: string, nextOrder: readonly string[]): void {
+  private pinsReordered(areaId: string, nextOrder: readonly string[], nextSolo?: readonly string[]): void {
     const hass = this._hass;
     if (!hass || this.boundAreaId() !== areaId) return;
-    const next = reorderPins(cachedPins(areaId), nextOrder);
+    const next = reorderPins(this.effectivePins(areaId), nextOrder, nextSolo);
+    const seq = (this.pendingPinSeq += 1);
+    this.pendingPins.set(areaId, { pins: next, seq });
+    this.syncPinnedRow(hass, areaId);
+    this.applyAreaEdit();
     void saveAreaPins(hass, areaId, next).then(
       () => {
+        if (this.pendingPins.get(areaId)?.seq === seq) this.pendingPins.delete(areaId);
         if (this._hass !== hass || this.boundAreaId() !== areaId) return;
         this.syncPinnedRow(hass, areaId);
         this.applyAreaEdit();
       },
       () => {
-        // A rejected save leaves the cache and the on-screen order unchanged.
+        if (this.pendingPins.get(areaId)?.seq === seq) this.pendingPins.delete(areaId);
+        if (this._hass !== hass || this.boundAreaId() !== areaId) return;
+        this.syncPinnedRow(hass, areaId);
+        this.applyAreaEdit();
       },
     );
   }
@@ -977,14 +1008,20 @@ class AreaCard extends HTMLElement {
     if (!hass || this.boundAreaId() !== areaId) return;
     const scope = this.entityScopes.get(draggedId);
     if (!scope) return;
-    const next = setScopeEntityOrder(cachedEntityOrder(areaId), scope, scopeIds);
+    const next = setScopeEntityOrder(this.effectiveEntityOrder(areaId), scope, scopeIds);
+    const seq = (this.pendingOrderSeq += 1);
+    this.pendingEntityOrder.set(areaId, { order: next, seq });
+    this.schedule();
     void saveAreaEntityOrder(hass, areaId, next).then(
       () => {
+        if (this.pendingEntityOrder.get(areaId)?.seq === seq) this.pendingEntityOrder.delete(areaId);
         if (this._hass !== hass || this.boundAreaId() !== areaId) return;
         this.schedule();
       },
       () => {
-        // A rejected save leaves the cache and the on-screen order unchanged.
+        if (this.pendingEntityOrder.get(areaId)?.seq === seq) this.pendingEntityOrder.delete(areaId);
+        if (this._hass !== hass || this.boundAreaId() !== areaId) return;
+        this.schedule();
       },
     );
   }
@@ -1017,7 +1054,7 @@ class AreaCard extends HTMLElement {
     this.syncCameraVideo(hass, areaId);
     const host = this.pinnedHost();
     const now = Date.now();
-    const pins = cachedPins(areaId);
+    const pins = this.effectivePins(areaId);
     const visible = visiblePinnedIds(
       pins,
       (id) => hass.states?.[id]?.state,
@@ -1028,7 +1065,7 @@ class AreaCard extends HTMLElement {
     this.pinSticky = visible.sticky;
     this.armPinSticky(visible.deadline, now);
     const selected = selectPinnedCards(this.popupCards, visible.ids);
-    const layout = layoutPinnedCards(selected);
+    const layout = layoutPinnedCards(selected, pins.solo);
     this.pinnedRowsVisible = layout.length > 0;
     this.applyShownPicture(hass, shown);
     const wanted = new Set<string>();

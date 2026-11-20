@@ -1,3 +1,4 @@
+import Sortable, { type Options as SortableOptions } from "sortablejs";
 import { CAMERA_ROW_TAG } from "./camera-detections";
 import { areaBackgroundEqual, type AreaBackgroundMode } from "./background-mode";
 import { stripRoomName } from "./names";
@@ -23,9 +24,8 @@ import { BUBBLE_CARDS_GRID } from "./tags";
 const EDIT_STYLE_ID = "area-card-pin-edit-style";
 const BG_SECTION_CLASS = "area-card-bg-section";
 const PIN_ORDER_CLASS = "area-card-pin-order-section";
+const PIN_NEW_ROW_CLASS = "area-card-pin-new-row";
 const SECTION_TITLE_TYPE = "custom:area-card-section-title";
-const DRAG_THRESHOLD_PX = 5;
-const FLIP_TRANSITION = "transform 160ms cubic-bezier(0.2, 0, 0, 1)";
 
 interface PinnedCardElement extends HTMLElement {
   hass?: ClassifierHass;
@@ -37,12 +37,24 @@ interface GuardState {
   editing: boolean;
 }
 
+type SortableFactory = (el: HTMLElement, options: SortableOptions) => Sortable;
+
+let sortableFactory: SortableFactory = (el, options) => Sortable.create(el, options);
+
+/** Override the SortableJS factory in unit tests; pass `null` to restore `Sortable.create`. */
+export function setSortableFactoryForTest(factory: SortableFactory | null): void {
+  sortableFactory = factory ?? ((el, options) => Sortable.create(el, options));
+}
+
 const guardStates = new WeakMap<ParentNode, GuardState>();
-const activeDragCancels = new Map<HTMLElement, () => void>();
+const activeDragGrids = new Set<HTMLElement>();
+const sectionSortables = new WeakMap<HTMLElement, Sortable>();
+const pinOrderSortables = new WeakMap<HTMLElement, { main: Sortable; newRow: Sortable }>();
+let pinGroupCounter = 0;
 
 export function isPopupDragActive(root: ParentNode): boolean {
   const grid = root.querySelector(`.${BUBBLE_CARDS_GRID}`);
-  return grid instanceof HTMLElement && activeDragCancels.has(grid);
+  return grid instanceof HTMLElement && activeDragGrids.has(grid);
 }
 
 export function popupEditStyles(): string {
@@ -50,51 +62,35 @@ export function popupEditStyles(): string {
     `.${BUBBLE_CARDS_GRID} > .card[data-edit-draggable="1"] {`,
     "  cursor: grab;",
     "  user-select: none;",
-    "  touch-action: none;",
+    "  -webkit-user-select: none;",
     "  position: relative;",
     "}",
-    `.${BUBBLE_CARDS_GRID} > .card[data-edit-draggable="1"] > :not(.area-card-pin-switch):not(.area-card-pin-menu):not(.area-card-battery-readout):not(.area-card-drag-handle) {`,
+    `.${BUBBLE_CARDS_GRID} > .card[data-edit-draggable="1"] > :not(.area-card-pin-switch):not(.area-card-pin-menu):not(.area-card-battery-readout) {`,
     "  pointer-events: none !important;",
     "}",
     `.${BUBBLE_CARDS_GRID} > .card:not([data-edit-draggable="1"]) > :not(.area-card-pin-switch):not(.area-card-pin-menu):not(.area-card-battery-readout):not(.area-card-pin-order-wrap) {`,
     "  pointer-events: none !important;",
     "}",
-    ".area-card-drag-handle {",
-    "  flex: 0 0 auto;",
-    "  display: inline-flex;",
-    "  align-items: center;",
-    "  justify-content: center;",
-    "  width: 28px;",
-    "  height: 36px;",
-    "  color: var(--secondary-text-color);",
-    "  opacity: 0.65;",
-    "  cursor: grab;",
-    "  touch-action: none;",
-    "  --mdc-icon-size: 20px;",
-    "}",
-    ".area-card-drag-handle:hover {",
-    "  opacity: 1;",
-    "  color: var(--primary-text-color);",
-    "}",
     ".area-card-dragging {",
-    "  position: fixed !important;",
-    "  z-index: 9999 !important;",
+    "  z-index: 100000 !important;",
     "  pointer-events: none !important;",
     "  margin: 0 !important;",
-    "  border-radius: 14px;",
-    "  outline: 2px solid var(--primary-color, #03a9f4) !important;",
-    "  outline-offset: 2px;",
-    "  box-shadow: 0 14px 36px rgba(0, 0, 0, 0.34), 0 0 0 4px color-mix(in srgb, var(--primary-color, #03a9f4) 24%, transparent) !important;",
-    "  scale: 1.02;",
-    "  opacity: 0.98 !important;",
-    "  will-change: transform;",
+    "  opacity: 1 !important;",
+    "  background: transparent !important;",
+    "  border: none !important;",
+    "  outline: none !important;",
+    "  box-shadow: none !important;",
+    "  cursor: grabbing;",
     "}",
     ".area-card-drag-placeholder {",
     "  box-sizing: border-box;",
-    "  border: 1.5px dashed color-mix(in srgb, var(--primary-text-color, #ffffff) 18%, transparent);",
+    "  border: 1.5px dashed color-mix(in srgb, var(--primary-text-color, #ffffff) 22%, transparent);",
     "  border-radius: 12px;",
     "  background: color-mix(in srgb, var(--primary-text-color, #ffffff) 4%, transparent);",
     "  pointer-events: none;",
+    "}",
+    ".area-card-drag-placeholder > * {",
+    "  visibility: hidden !important;",
     "}",
     `.${PIN_ORDER_CLASS} {`,
     "  grid-column: 1 / -1;",
@@ -123,19 +119,13 @@ export function popupEditStyles(): string {
     "}",
     ".area-card-pin-order-preview {",
     "  display: flex;",
-    "  flex-direction: column;",
+    "  flex-direction: row;",
+    "  flex-wrap: wrap;",
+    "  align-items: stretch;",
     "  gap: 0;",
     "  width: 100%;",
     "  border-radius: 12px;",
     "  overflow: visible;",
-    "}",
-    ".area-card-pin-order-row {",
-    "  display: flex;",
-    "  flex-direction: row;",
-    "  flex-wrap: nowrap;",
-    "  align-items: stretch;",
-    "  gap: 0;",
-    "  width: 100%;",
     "}",
     ".area-card-pin-order-item {",
     "  position: relative;",
@@ -146,7 +136,7 @@ export function popupEditStyles(): string {
     "  min-width: 0;",
     "  cursor: grab;",
     "  user-select: none;",
-    "  touch-action: none;",
+    "  -webkit-user-select: none;",
     "}",
     ".area-card-pin-order-item > hui-card {",
     "  pointer-events: none !important;",
@@ -169,6 +159,42 @@ export function popupEditStyles(): string {
     "  background: color-mix(in srgb, var(--primary-color) 18%, var(--card-background-color, #1c1c1e));",
     "  color: var(--primary-color);",
     "  pointer-events: none;",
+    "}",
+    `.${PIN_NEW_ROW_CLASS} {`,
+    "  display: none;",
+    "  align-items: center;",
+    "  justify-content: center;",
+    "  box-sizing: border-box;",
+    "  width: 100%;",
+    "  min-height: 56px;",
+    "  margin-top: 8px;",
+    "  border: 1.5px dashed color-mix(in srgb, var(--primary-text-color, #ffffff) 26%, transparent);",
+    "  border-radius: 12px;",
+    "  background: color-mix(in srgb, var(--primary-text-color, #ffffff) 4%, transparent);",
+    "  color: var(--secondary-text-color);",
+    "  font-size: 13px;",
+    "  font-weight: 500;",
+    "  transition: border-color 120ms ease, background-color 120ms ease, color 120ms ease;",
+    "}",
+    `.${PIN_ORDER_CLASS}.is-dragging > .${PIN_NEW_ROW_CLASS} {`,
+    "  display: flex;",
+    "}",
+    `.${PIN_NEW_ROW_CLASS}:empty::before {`,
+    '  content: "Drop here for new row";',
+    "  pointer-events: none;",
+    "}",
+    `.${PIN_NEW_ROW_CLASS}:not(:empty) {`,
+    "  border-color: var(--primary-color, #03a9f4);",
+    "  background: color-mix(in srgb, var(--primary-color, #03a9f4) 14%, transparent);",
+    "}",
+    `.${PIN_NEW_ROW_CLASS} > .area-card-pin-order-item {`,
+    "  flex: 1 1 100% !important;",
+    "  width: 100% !important;",
+    "  max-width: 100% !important;",
+    "}",
+    `.${PIN_NEW_ROW_CLASS} > .area-card-drag-placeholder {`,
+    "  border-color: transparent !important;",
+    "  background: transparent !important;",
     "}",
     `.${BG_SECTION_CLASS} {`,
     "  grid-column: 1 / -1;",
@@ -334,10 +360,7 @@ export function syncPopupEditGuards(root: ParentNode, editing: boolean): void {
 
 function rowConfig(cell: Element): Record<string, unknown> | null {
   for (const child of cell.children) {
-    if (
-      child.classList.contains("area-card-pin-switch") ||
-      child.classList.contains("area-card-drag-handle")
-    ) {
+    if (child.classList.contains("area-card-pin-switch")) {
       continue;
     }
     const config = (child as Element & { config?: unknown }).config;
@@ -396,13 +419,14 @@ function innerHosts(card: HTMLElement): HTMLElement[] {
 
 function syncPreviewStyle(root: ParentNode | null | undefined, id: string, text: string | null): void {
   if (!root) return;
-  const existing = root.querySelector(`#${CSS.escape(id)}`);
+  const escapedId = typeof CSS !== "undefined" && typeof CSS.escape === "function" ? CSS.escape(id) : id;
+  const existing = root.querySelector(`#${escapedId}`);
   if (!text) {
     existing?.remove();
     return;
   }
   let style = existing;
-  if (!(style instanceof HTMLStyleElement)) {
+  if (!style || style.localName !== "style") {
     style = document.createElement("style");
     style.id = id;
     root.append(style);
@@ -461,252 +485,196 @@ function stylePreviewCard(card: HTMLElement, edge: PinnedEdge, sideBySide: boole
 
 const previewConfigKeys = new WeakMap<HTMLElement, string>();
 
-interface DragControllerOptions {
-  grid: HTMLElement;
-  handleOnly?: boolean;
-  beginDrag: (item: HTMLElement, rect: DOMRect) => HTMLElement;
-  getSiblings: (item: HTMLElement, placeholder: HTMLElement) => HTMLElement[];
-  getOrderedSlots: (placeholder: HTMLElement) => HTMLElement[];
-  reorderToTarget: (placeholder: HTMLElement, target: HTMLElement) => void;
-  commitDrag: (item: HTMLElement, placeholder: HTMLElement) => void;
-  revertDrag: (item: HTMLElement, placeholder: HTMLElement) => void;
-}
+const MIRRORED_STYLE_PROPS = [
+  "display",
+  "position",
+  "top",
+  "right",
+  "bottom",
+  "left",
+  "z-index",
+  "box-sizing",
+  "width",
+  "height",
+  "min-width",
+  "min-height",
+  "max-width",
+  "max-height",
+  "padding",
+  "margin",
+  "flex",
+  "flex-direction",
+  "flex-wrap",
+  "align-items",
+  "justify-content",
+  "gap",
+  "grid-template-columns",
+  "grid-template-rows",
+  "grid-column",
+  "grid-row",
+  "overflow",
+  "background",
+  "backdrop-filter",
+  "-webkit-backdrop-filter",
+  "border",
+  "border-radius",
+  "box-shadow",
+  "color",
+  "fill",
+  "font",
+  "line-height",
+  "letter-spacing",
+  "text-align",
+  "text-overflow",
+  "white-space",
+  "opacity",
+  "transform",
+] as const;
 
-const dragOptionsMap = new WeakMap<HTMLElement, DragControllerOptions>();
-
-function clearFlipStyles(elements: readonly HTMLElement[]): void {
-  for (const el of elements) {
-    el.style.transition = "";
-    el.style.transform = "";
-  }
-}
-
-function animateFlip(elements: readonly HTMLElement[], beforeRects: ReadonlyMap<HTMLElement, DOMRect>): void {
-  const moved: Array<{ el: HTMLElement; dx: number; dy: number }> = [];
-  for (const el of elements) {
-    const before = beforeRects.get(el);
-    if (!before) continue;
-    const after = el.getBoundingClientRect();
-    const dx = before.left - after.left;
-    const dy = before.top - after.top;
-    if (Math.abs(dx) < 0.5 && Math.abs(dy) < 0.5) continue;
-    moved.push({ el, dx, dy });
-  }
-  if (moved.length === 0) return;
-
-  for (const { el, dx, dy } of moved) {
-    el.style.transition = "none";
-    el.style.transform = `translate3d(${dx}px, ${dy}px, 0)`;
-  }
-
-  void moved[0].el.offsetHeight;
-
-  const startTransition = () => {
-    for (const { el } of moved) {
-      el.style.transition = FLIP_TRANSITION;
-      el.style.transform = "translate3d(0, 0, 0)";
+function copySafeAttributes(source: Element, target: Element): void {
+  if (!source.attributes) return;
+  for (const attr of Array.from(source.attributes)) {
+    if (attr.name === "id") continue;
+    try {
+      target.setAttribute(attr.name, attr.value);
+    } catch {
+      // Ignore non-transferable attributes on SVG/custom nodes.
     }
+  }
+}
+
+function copyComputedVisualStyles(source: Element, target: HTMLElement | SVGElement): void {
+  if (typeof getComputedStyle !== "function") return;
+  const cs = getComputedStyle(source);
+  for (const prop of MIRRORED_STYLE_PROPS) {
+    const val = cs.getPropertyValue(prop);
+    if (val) target.style.setProperty(prop, val);
+  }
+}
+
+/**
+ * SortableJS fallback mode clones `dragEl` with `cloneNode(true)`, which drops
+ * custom element Shadow DOM trees. Mirroring open shadow roots, `slot`
+ * attributes, adopted stylesheets, and computed styles into inert `<div>`
+ * shadow hosts makes the floating element look identical to the live card on
+ * frame 0 without re-running Lit lifecycle hooks.
+ */
+function mirrorDomWithShadows(node: Node, elevatedCard: { done: boolean }): Node {
+  if (node.nodeType === 3) {
+    return document.createTextNode(node.textContent ?? "");
+  }
+  if (!(node instanceof Element)) {
+    return document.createTextNode("");
+  }
+  if (node.classList.contains("area-card-pin-menu")) {
+    return document.createTextNode("");
+  }
+  if (node.classList.contains("area-card-pin-switch")) {
+    const spacer = document.createElement("div");
+    spacer.className = "area-card-pin-switch";
+    copyComputedVisualStyles(node, spacer);
+    spacer.style.setProperty("visibility", "hidden", "important");
+    spacer.style.setProperty("pointer-events", "none", "important");
+    return spacer;
+  }
+
+  if (node.shadowRoot && typeof document.createElement === "function") {
+    const host = document.createElement("div");
+    copySafeAttributes(node, host);
+    copyComputedVisualStyles(node, host);
+    host.style.setProperty("pointer-events", "none", "important");
+    if (node.localName === "ha-card" && !elevatedCard.done) {
+      elevatedCard.done = true;
+      host.style.setProperty("border-radius", "12px", "important");
+      host.style.setProperty(
+        "box-shadow",
+        "0 10px 24px rgba(0, 0, 0, 0.28), 0 2px 6px rgba(0, 0, 0, 0.16)",
+        "important",
+      );
+    }
+    if (typeof host.attachShadow === "function") {
+      const sr = host.attachShadow({ mode: "open" });
+      if (node.shadowRoot.adoptedStyleSheets && "adoptedStyleSheets" in sr) {
+        sr.adoptedStyleSheets = [...node.shadowRoot.adoptedStyleSheets];
+      }
+      for (const sChild of Array.from(node.shadowRoot.childNodes)) {
+        sr.appendChild(mirrorDomWithShadows(sChild, elevatedCard));
+      }
+      const noPointerStyle = document.createElement("style");
+      noPointerStyle.textContent = ":host, * { pointer-events: none !important; }";
+      sr.appendChild(noPointerStyle);
+    }
+    for (const lChild of Array.from(node.childNodes)) {
+      host.appendChild(mirrorDomWithShadows(lChild, elevatedCard));
+    }
+    return host;
+  }
+
+  const isCustom = node.localName.includes("-");
+  const isSvg = node.namespaceURI === "http://www.w3.org/2000/svg";
+  const clone =
+    isCustom || typeof document.createElementNS !== "function"
+      ? document.createElement(isCustom ? "div" : node.localName)
+      : document.createElementNS(node.namespaceURI || "http://www.w3.org/2000/xhtml", node.localName);
+  copySafeAttributes(node, clone);
+  if (clone instanceof HTMLElement || (typeof SVGElement !== "undefined" && clone instanceof SVGElement)) {
+    if (isCustom || isSvg) copyComputedVisualStyles(node, clone);
+    clone.style.setProperty("pointer-events", "none", "important");
+  }
+  for (const child of Array.from(node.childNodes)) {
+    clone.appendChild(mirrorDomWithShadows(child, elevatedCard));
+  }
+  return clone;
+}
+
+function hydrateSortableGhost(sourceEl: unknown): void {
+  const ghost = Sortable.ghost;
+  if (!(ghost instanceof HTMLElement) || !(sourceEl instanceof HTMLElement)) return;
+  if (!sourceEl.childNodes || typeof ghost.replaceChildren !== "function") return;
+  const hadPlaceholder = sourceEl.classList.contains("area-card-drag-placeholder");
+  if (hadPlaceholder) sourceEl.classList.remove("area-card-drag-placeholder");
+  const elevatedCard = { done: false };
+  const mirroredChildren: Node[] = [];
+  try {
+    for (const child of Array.from(sourceEl.childNodes)) {
+      mirroredChildren.push(mirrorDomWithShadows(child, elevatedCard));
+    }
+  } finally {
+    if (hadPlaceholder) sourceEl.classList.add("area-card-drag-placeholder");
+  }
+  ghost.style.setProperty("opacity", "1", "important");
+  ghost.style.setProperty("max-width", "none", "important");
+  ghost.style.setProperty("flex", "none", "important");
+  ghost.replaceChildren(...mirroredChildren);
+}
+
+function baseSortableOptions(): SortableOptions {
+  return {
+    forceFallback: true,
+    fallbackOnBody: false,
+    fallbackTolerance: 4,
+    delay: 120,
+    delayOnTouchOnly: true,
+    touchStartThreshold: 5,
+    swapThreshold: 0.85,
+    direction: (_evt, target, dragEl) => {
+      if (target instanceof HTMLElement && dragEl instanceof HTMLElement) {
+        const tr = target.getBoundingClientRect();
+        const dr = dragEl.getBoundingClientRect();
+        const verticalOverlap = Math.min(tr.bottom, dr.bottom) - Math.max(tr.top, dr.top);
+        const minHeight = Math.min(tr.height, dr.height);
+        if (minHeight > 0 && verticalOverlap > minHeight * 0.5) {
+          return "horizontal";
+        }
+      }
+      return "vertical";
+    },
+    animation: 150,
+    easing: "cubic-bezier(0.2, 0, 0, 1)",
+    ghostClass: "area-card-drag-placeholder",
+    fallbackClass: "area-card-dragging",
+    chosenClass: "area-card-drag-chosen",
   };
-
-  if (typeof requestAnimationFrame === "function") {
-    requestAnimationFrame(startTransition);
-  } else {
-    startTransition();
-  }
-}
-
-function shouldSwapWithTarget(
-  clientX: number,
-  clientY: number,
-  targetRect: DOMRect,
-  placeholderRect: DOMRect,
-  fromIdx: number,
-  toIdx: number,
-): boolean {
-  if (fromIdx === -1 || toIdx === -1 || fromIdx === toIdx) return false;
-  const sameRow =
-    placeholderRect.height > 0 &&
-    Math.abs(targetRect.top - placeholderRect.top) < Math.min(targetRect.height, placeholderRect.height) * 0.5;
-  if (sameRow) {
-    const midX = targetRect.left + targetRect.width * 0.5;
-    return fromIdx < toIdx ? clientX >= midX : clientX <= midX;
-  }
-  const midY = targetRect.top + targetRect.height * 0.5;
-  return fromIdx < toIdx ? clientY >= midY : clientY <= midY;
-}
-
-function attachPointerDrag(item: HTMLElement, options: DragControllerOptions): void {
-  dragOptionsMap.set(item, options);
-  if (item.dataset.editDragBound === "1") return;
-  item.dataset.editDragBound = "1";
-
-  item.addEventListener("pointerdown", (downEvent: PointerEvent) => {
-    const opts = dragOptionsMap.get(item);
-    if (!opts) return;
-    if (downEvent.pointerType === "mouse" && downEvent.button !== 0) return;
-    const path = eventPath(downEvent);
-    if (
-      path.some(
-        (n) =>
-          n instanceof Element &&
-          (n.classList.contains("area-card-pin-switch") || n.classList.contains("area-card-pin-menu")),
-      )
-    ) {
-      return;
-    }
-    if (opts.handleOnly && downEvent.pointerType !== "mouse") {
-      if (!path.some((n) => n instanceof Element && n.classList.contains("area-card-drag-handle"))) {
-        return;
-      }
-    }
-
-    const startX = downEvent.clientX;
-    const startY = downEvent.clientY;
-    let dragging = false;
-    let placeholder: HTMLElement | null = null;
-    let baseX = 0;
-    let baseY = 0;
-    let savedStyle: {
-      position: string;
-      left: string;
-      top: string;
-      width: string;
-      height: string;
-      margin: string;
-      transform: string;
-      transition: string;
-      zIndex: string;
-    } | null = null;
-
-    const cleanupListenersAndStyles = () => {
-      window.removeEventListener("pointermove", onMove);
-      window.removeEventListener("pointerup", onUp);
-      window.removeEventListener("pointercancel", onCancel);
-      window.removeEventListener("keydown", onKeyDown);
-      activeDragCancels.delete(opts.grid);
-
-      if (dragging && placeholder) {
-        clearFlipStyles(opts.getSiblings(item, placeholder));
-      }
-      if (savedStyle) {
-        item.style.position = savedStyle.position;
-        item.style.left = savedStyle.left;
-        item.style.top = savedStyle.top;
-        item.style.width = savedStyle.width;
-        item.style.height = savedStyle.height;
-        item.style.margin = savedStyle.margin;
-        item.style.transform = savedStyle.transform;
-        item.style.transition = savedStyle.transition;
-        item.style.zIndex = savedStyle.zIndex;
-      }
-      item.classList.remove("area-card-dragging");
-      delete item.dataset.editDragging;
-    };
-
-    const onMove = (moveEvent: PointerEvent) => {
-      const dx = moveEvent.clientX - startX;
-      const dy = moveEvent.clientY - startY;
-      if (!dragging) {
-        if (Math.hypot(dx, dy) < DRAG_THRESHOLD_PX) return;
-        dragging = true;
-        const rect = item.getBoundingClientRect();
-        savedStyle = {
-          position: item.style.position,
-          left: item.style.left,
-          top: item.style.top,
-          width: item.style.width,
-          height: item.style.height,
-          margin: item.style.margin,
-          transform: item.style.transform,
-          transition: item.style.transition,
-          zIndex: item.style.zIndex,
-        };
-        placeholder = opts.beginDrag(item, rect);
-        activeDragCancels.set(opts.grid, onCancel);
-
-        item.classList.add("area-card-dragging");
-        item.dataset.editDragging = "1";
-        item.style.position = "fixed";
-        item.style.left = "0px";
-        item.style.top = "0px";
-        item.style.width = `${rect.width}px`;
-        item.style.height = `${rect.height}px`;
-        item.style.margin = "0";
-        item.style.transition = "none";
-        item.style.transform = "none";
-        const fixedRect = item.getBoundingClientRect();
-        baseX = rect.left - fixedRect.left;
-        baseY = rect.top - fixedRect.top;
-      }
-
-      moveEvent.preventDefault();
-      item.style.transform = `translate3d(${baseX + dx}px, ${baseY + dy}px, 0)`;
-
-      if (!placeholder) return;
-      const siblings = opts.getSiblings(item, placeholder);
-      const slots = opts.getOrderedSlots(placeholder);
-      const fromIdx = slots.indexOf(placeholder);
-      const placeholderRect = placeholder.getBoundingClientRect();
-
-      let hoveredTarget: HTMLElement | null = null;
-      for (const candidate of siblings) {
-        const cRect = candidate.getBoundingClientRect();
-        if (cRect.width <= 0 || cRect.height <= 0) continue;
-        if (
-          moveEvent.clientX >= cRect.left &&
-          moveEvent.clientX <= cRect.right &&
-          moveEvent.clientY >= cRect.top &&
-          moveEvent.clientY <= cRect.bottom
-        ) {
-          const toIdx = slots.indexOf(candidate);
-          if (shouldSwapWithTarget(moveEvent.clientX, moveEvent.clientY, cRect, placeholderRect, fromIdx, toIdx)) {
-            hoveredTarget = candidate;
-            break;
-          }
-        }
-      }
-
-      if (hoveredTarget) {
-        const beforeRects = new Map<HTMLElement, DOMRect>();
-        for (const sib of siblings) {
-          beforeRects.set(sib, sib.getBoundingClientRect());
-        }
-        clearFlipStyles(siblings);
-        opts.reorderToTarget(placeholder, hoveredTarget);
-        animateFlip(siblings, beforeRects);
-      }
-    };
-
-    const onUp = () => {
-      const wasDragging = dragging;
-      const ph = placeholder;
-      cleanupListenersAndStyles();
-      if (wasDragging && ph) {
-        opts.commitDrag(item, ph);
-      }
-    };
-
-    const onCancel = () => {
-      const wasDragging = dragging;
-      const ph = placeholder;
-      cleanupListenersAndStyles();
-      if (wasDragging && ph) {
-        opts.revertDrag(item, ph);
-      }
-    };
-
-    const onKeyDown = (keyEvent: KeyboardEvent) => {
-      if (keyEvent.key === "Escape") {
-        keyEvent.preventDefault();
-        onCancel();
-      }
-    };
-
-    window.addEventListener("pointermove", onMove, { passive: false });
-    window.addEventListener("pointerup", onUp);
-    window.addEventListener("pointercancel", onCancel);
-    window.addEventListener("keydown", onKeyDown);
-  });
 }
 
 function layoutPinOrderPreview(
@@ -714,57 +682,43 @@ function layoutPinOrderPreview(
   orderedIds: readonly string[],
   popupCards: readonly Record<string, unknown>[],
   itemById: ReadonlyMap<string, HTMLElement>,
-  draggedEntityId?: string,
-  placeholder?: HTMLElement,
+  soloIds?: ReadonlySet<string> | readonly string[],
 ): void {
   const selected = selectPinnedCards(popupCards, orderedIds);
-  const layout = layoutPinnedCards(selected);
+  const layout = layoutPinnedCards(selected, soloIds);
 
-  const rowEls: HTMLElement[] = [];
+  const orderedEls: HTMLElement[] = [];
   for (let rowIndex = 0; rowIndex < layout.length; rowIndex += 1) {
     const row = layout[rowIndex];
-    let rowEl = preview.children[rowIndex] as HTMLElement | undefined;
-    if (!rowEl || !rowEl.classList.contains("area-card-pin-order-row")) {
-      rowEl = document.createElement("div");
-      rowEl.className = "area-card-pin-order-row";
-      preview.insertBefore(rowEl, preview.children[rowIndex] ?? null);
-    }
-    rowEls.push(rowEl);
-
-    let cardIndex = 0;
     for (let i = 0; i < row.cards.length; i += 1) {
       const item = row.cards[i];
       const id = pinEntityId(item.config);
       if (!id) continue;
-      const slotEl = id === draggedEntityId && placeholder ? placeholder : itemById.get(id);
+      const slotEl = itemById.get(id);
       if (!slotEl) continue;
 
       applyItemWidth(slotEl, item.width);
-      if (slotEl !== placeholder) {
-        const card = slotEl.querySelector("hui-card") as HTMLElement | null;
-        if (card) {
-          const edge: PinnedEdge = {
-            first: rowIndex === 0,
-            last: rowIndex === layout.length - 1,
-            left: i === 0,
-            right: i === row.cards.length - 1,
-          };
-          stylePreviewCard(card, edge, pinnedRowsSideBySide(item.config, item.width));
-        }
+      const card = slotEl.querySelector("hui-card") as HTMLElement | null;
+      if (card) {
+        const edge: PinnedEdge = {
+          first: rowIndex === 0,
+          last: rowIndex === layout.length - 1,
+          left: i === 0,
+          right: i === row.cards.length - 1,
+        };
+        stylePreviewCard(card, edge, pinnedRowsSideBySide(item.config, item.width));
       }
-
-      const at = rowEl.children[cardIndex] ?? null;
-      if (at !== slotEl) rowEl.insertBefore(slotEl, at);
-      cardIndex += 1;
-    }
-    while (rowEl.children.length > cardIndex) {
-      rowEl.children[rowEl.children.length - 1]?.remove();
+      orderedEls.push(slotEl);
     }
   }
-  while (preview.children.length > rowEls.length) {
-    const last = preview.children[preview.children.length - 1];
-    if (last instanceof HTMLElement && last.dataset.editDragging === "1") break;
-    last?.remove();
+
+  for (let i = 0; i < orderedEls.length; i += 1) {
+    const el = orderedEls[i];
+    const at = preview.children[i] ?? null;
+    if (at !== el) preview.insertBefore(el, at);
+  }
+  while (preview.children.length > orderedEls.length) {
+    preview.children[preview.children.length - 1]?.remove();
   }
 }
 
@@ -907,6 +861,52 @@ export function syncCardBackgroundSection(
   }
 }
 
+interface PinOrderState {
+  orderedIds: string[];
+  solo: string[];
+  popupCards: readonly Record<string, unknown>[];
+  itemById: ReadonlyMap<string, HTMLElement>;
+  onReorderPins: (nextOrder: string[], nextSolo: string[]) => void;
+}
+
+const pinOrderStates = new WeakMap<HTMLElement, PinOrderState>();
+const sectionReorderCallbacks = new WeakMap<HTMLElement, (draggedId: string, scopeIds: string[]) => void>();
+
+function containerOrderIds(container: HTMLElement): string[] {
+  const ids: string[] = [];
+  for (const child of container.children) {
+    if (!(child instanceof HTMLElement)) continue;
+    const id = child.dataset.pinOrderEntity;
+    if (id && !child.classList.contains("area-card-dragging")) {
+      ids.push(id);
+    }
+  }
+  return ids;
+}
+
+function findPinRowIndex(
+  layout: ReturnType<typeof layoutPinnedCards>,
+  entityId: string,
+): { rowIdx: number; partnerId: string | null } {
+  for (let r = 0; r < layout.length; r += 1) {
+    const ids = layout[r].cards
+      .map((c) => pinEntityId(c.config))
+      .filter((id): id is string => Boolean(id));
+    if (ids.includes(entityId)) {
+      const partner = ids.length === 2 ? (ids.find((id) => id !== entityId) ?? null) : null;
+      return { rowIdx: r, partnerId: partner };
+    }
+  }
+  return { rowIdx: -1, partnerId: null };
+}
+
+function isHalfWidthCard(popupCards: readonly Record<string, unknown>[], entityId: string): boolean {
+  const card = selectPinnedCards(popupCards, [entityId])[0];
+  if (!card) return false;
+  const grid = card.grid_options;
+  return Boolean(grid && typeof grid === "object" && !Array.isArray(grid) && (grid as { columns?: unknown }).columns === 6);
+}
+
 export function syncPinOrderSection(
   root: ParentNode,
   options: {
@@ -914,18 +914,25 @@ export function syncPinOrderSection(
     pins: AreaPins;
     popupCards: readonly Record<string, unknown>[];
     hass: ClassifierHass;
-    onReorderPins: (nextOrder: string[]) => void;
+    onReorderPins: (nextOrder: string[], nextSolo: string[]) => void;
   },
 ): void {
   const grid = root.querySelector(`.${BUBBLE_CARDS_GRID}`);
   if (!(grid instanceof HTMLElement)) return;
-  if (activeDragCancels.has(grid)) {
+  if (activeDragGrids.has(grid)) {
     if (options.editing) return;
-    activeDragCancels.get(grid)?.();
+    activeDragGrids.delete(grid);
   }
   const existing = grid.querySelector(`:scope > .${PIN_ORDER_CLASS}`);
   const orderedIds = pinnedOrder(options.pins);
   if (!options.editing || orderedIds.length < 2) {
+    const oldPreview = existing?.querySelector(":scope > .area-card-pin-order-preview");
+    if (oldPreview instanceof HTMLElement) {
+      const pair = pinOrderSortables.get(oldPreview);
+      pair?.main.destroy();
+      pair?.newRow.destroy();
+      pinOrderSortables.delete(oldPreview);
+    }
     existing?.remove();
     return;
   }
@@ -944,7 +951,9 @@ export function syncPinOrderSection(
     header.append(icon, title);
     const preview = document.createElement("div");
     preview.className = "area-card-pin-order-preview";
-    section.append(header, preview);
+    const newRow = document.createElement("div");
+    newRow.className = PIN_NEW_ROW_CLASS;
+    section.append(header, preview, newRow);
   }
   const bgSection = grid.querySelector(`:scope > .${BG_SECTION_CLASS}`);
   const anchor = bgSection
@@ -954,10 +963,20 @@ export function syncPinOrderSection(
 
   const preview = section.querySelector(":scope > .area-card-pin-order-preview");
   if (!(preview instanceof HTMLElement)) return;
+  const existingNewRow = section.querySelector(`:scope > .${PIN_NEW_ROW_CLASS}`);
+  let dropRowEl: HTMLElement;
+  if (existingNewRow instanceof HTMLElement) {
+    dropRowEl = existingNewRow;
+  } else {
+    dropRowEl = document.createElement("div");
+    dropRowEl.className = PIN_NEW_ROW_CLASS;
+    section.append(dropRowEl);
+  }
+  const sectionEl = section;
 
   const selected = selectPinnedCards(options.popupCards, orderedIds);
   const existingItems = new Map<string, HTMLElement>();
-  for (const el of preview.querySelectorAll<HTMLElement>("[data-pin-order-entity]")) {
+  for (const el of section.querySelectorAll<HTMLElement>("[data-pin-order-entity]")) {
     const id = el.dataset.pinOrderEntity;
     if (id) existingItems.set(id, el);
   }
@@ -1008,81 +1027,125 @@ export function syncPinOrderSection(
     itemById.set(id, itemEl);
   }
 
-  layoutPinOrderPreview(preview, orderedIds, options.popupCards, itemById);
+  const initialSoloList = [...(options.pins.solo ?? [])];
+  layoutPinOrderPreview(preview, orderedIds, options.popupCards, itemById, initialSoloList);
+  while (dropRowEl.firstElementChild) {
+    dropRowEl.firstElementChild.remove();
+  }
+  pinOrderStates.set(preview, {
+    orderedIds: [...orderedIds],
+    solo: initialSoloList,
+    popupCards: options.popupCards,
+    itemById,
+    onReorderPins: options.onReorderPins,
+  });
 
-  let currentOrder = [...orderedIds];
-  let initialOrder = [...orderedIds];
-  let draggedId = "";
+  if (!pinOrderSortables.has(preview)) {
+    const groupName = `area-card-pin-order-${(pinGroupCounter += 1)}`;
+    let initialOrder: string[] = [];
+    let initialSolo: string[] = [];
+    let draggedId = "";
+    let startPartnerId: string | null = null;
 
-  for (const [id, itemEl] of itemById) {
-    attachPointerDrag(itemEl, {
-      grid,
-      beginDrag: (dragged, rect) => {
-        draggedId = id;
-        initialOrder = [...orderedIds];
-        currentOrder = [...orderedIds];
-        const placeholder = document.createElement("div");
-        placeholder.className = "area-card-drag-placeholder";
-        placeholder.dataset.pinOrderPlaceholder = id;
-        placeholder.style.height = `${rect.height}px`;
-        if (dragged.parentElement) {
-          dragged.parentElement.insertBefore(placeholder, dragged);
+    const main = sortableFactory(preview, {
+      ...baseSortableOptions(),
+      group: { name: groupName, pull: true, put: true },
+      draggable: ".area-card-pin-order-item",
+      onStart: (evt) => {
+        hydrateSortableGhost(evt.item);
+        activeDragGrids.add(grid);
+        sectionEl.classList.add("is-dragging");
+        const state = pinOrderStates.get(preview);
+        initialOrder = state ? [...state.orderedIds] : containerOrderIds(preview);
+        initialSolo = state ? [...state.solo] : [];
+        draggedId = evt.item instanceof HTMLElement ? (evt.item.dataset.pinOrderEntity ?? "") : "";
+        startPartnerId = null;
+        if (state && draggedId) {
+          const layout = layoutPinnedCards(selectPinnedCards(state.popupCards, initialOrder), initialSolo);
+          startPartnerId = findPinRowIndex(layout, draggedId).partnerId;
         }
-        preview.append(dragged);
-        layoutPinOrderPreview(preview, currentOrder, options.popupCards, itemById, draggedId, placeholder);
-        return placeholder;
       },
-      getSiblings: () =>
-        [...preview.querySelectorAll<HTMLElement>("[data-pin-order-entity]")].filter(
-          (el) => el.dataset.editDragging !== "1",
-        ),
-      getOrderedSlots: (placeholder) => {
-        const slots: HTMLElement[] = [];
-        for (const row of preview.children) {
-          if (!row.classList.contains("area-card-pin-order-row")) continue;
-          for (const child of row.children) {
-            if (
-              child instanceof HTMLElement &&
-              (child === placeholder || (child.dataset.pinOrderEntity && child.dataset.editDragging !== "1"))
-            ) {
-              slots.push(child);
+      onEnd: (evt) => {
+        activeDragGrids.delete(grid);
+        sectionEl.classList.remove("is-dragging");
+        const state = pinOrderStates.get(preview);
+        if (!state) return;
+
+        const droppedInNewRow =
+          evt.to === dropRowEl ||
+          (evt.item instanceof HTMLElement && evt.item.parentElement === dropRowEl);
+        const nextOrder = [...containerOrderIds(preview), ...containerOrderIds(dropRowEl)];
+        const orderChanged =
+          nextOrder.length === initialOrder.length &&
+          nextOrder.some((v, idx) => v !== initialOrder[idx]);
+
+        const nextSoloSet = new Set(initialSolo);
+        if (draggedId && isHalfWidthCard(state.popupCards, draggedId)) {
+          if (droppedInNewRow) {
+            nextSoloSet.add(draggedId);
+          } else if (startPartnerId) {
+            const idxDragged = nextOrder.indexOf(draggedId);
+            const idxPartner = nextOrder.indexOf(startPartnerId);
+            const separated = idxDragged !== -1 && idxPartner !== -1 && Math.abs(idxDragged - idxPartner) > 1;
+            const layout = layoutPinnedCards(selectPinnedCards(state.popupCards, nextOrder), nextSoloSet);
+            const draggedPos = findPinRowIndex(layout, draggedId);
+            const partnerPos = findPinRowIndex(layout, startPartnerId);
+            if (separated || draggedPos.rowIdx !== partnerPos.rowIdx) {
+              nextSoloSet.add(draggedId);
+            }
+          } else if (orderChanged && nextSoloSet.has(draggedId)) {
+            const candidateSolo = new Set(nextSoloSet);
+            candidateSolo.delete(draggedId);
+            const candidateLayout = layoutPinnedCards(
+              selectPinnedCards(state.popupCards, nextOrder),
+              candidateSolo,
+            );
+            const candidatePartner = findPinRowIndex(candidateLayout, draggedId).partnerId;
+            if (candidatePartner) {
+              const idxDragged = nextOrder.indexOf(draggedId);
+              const idxPartner = nextOrder.indexOf(candidatePartner);
+              if (idxDragged !== -1 && idxPartner !== -1 && Math.abs(idxDragged - idxPartner) === 1) {
+                nextSoloSet.delete(draggedId);
+              }
             }
           }
         }
-        return slots;
-      },
-      reorderToTarget: (placeholder, target) => {
-        const toId = target.dataset.pinOrderEntity;
-        if (!toId || !draggedId) return;
-        const nextOrder = reorderIds(currentOrder, draggedId, toId);
-        if (nextOrder.every((v, idx) => v === currentOrder[idx])) return;
-        currentOrder = nextOrder;
-        layoutPinOrderPreview(preview, currentOrder, options.popupCards, itemById, draggedId, placeholder);
-      },
-      commitDrag: (_dragged, placeholder) => {
-        placeholder.remove();
-        layoutPinOrderPreview(preview, currentOrder, options.popupCards, itemById);
-        const changed = currentOrder.some((v, idx) => v !== initialOrder[idx]);
-        if (changed) {
-          options.onReorderPins(currentOrder);
+
+        const nextSolo = [...nextSoloSet];
+        layoutPinOrderPreview(preview, nextOrder, state.popupCards, state.itemById, nextSolo);
+        while (dropRowEl.firstElementChild) {
+          dropRowEl.firstElementChild.remove();
+        }
+        state.orderedIds = [...nextOrder];
+        state.solo = [...nextSolo];
+
+        const soloChanged =
+          nextSolo.length !== initialSolo.length ||
+          nextSolo.some((v, idx) => v !== initialSolo[idx]);
+        if (orderChanged || soloChanged) {
+          state.onReorderPins(nextOrder, nextSolo);
         }
       },
-      revertDrag: (_dragged, placeholder) => {
-        placeholder.remove();
-        currentOrder = [...initialOrder];
-        layoutPinOrderPreview(preview, initialOrder, options.popupCards, itemById);
-      },
     });
+
+    const newRow = sortableFactory(dropRowEl, {
+      ...baseSortableOptions(),
+      group: { name: groupName, pull: true, put: true },
+      draggable: ".area-card-pin-order-item",
+      emptyInsertThreshold: 28,
+    });
+
+    pinOrderSortables.set(preview, { main, newRow });
   }
 }
 
-function scopeSlotElements(grid: HTMLElement, scope: string, includeDragging: boolean): HTMLElement[] {
+function scopeSlotElements(grid: HTMLElement, scope: string): HTMLElement[] {
   const out: HTMLElement[] = [];
   for (const child of grid.children) {
     if (!(child instanceof HTMLElement)) continue;
     if (!child.classList.contains("card")) continue;
     if (child.dataset.editScope !== scope) continue;
-    if (!includeDragging && child.dataset.editDragging === "1") continue;
+    if (child.classList.contains("area-card-dragging")) continue;
     out.push(child);
   }
   return out;
@@ -1097,20 +1160,21 @@ export function syncSectionDragOrder(
 ): void {
   const grid = root.querySelector(`.${BUBBLE_CARDS_GRID}`);
   if (!(grid instanceof HTMLElement)) return;
-  if (activeDragCancels.has(grid)) {
+  if (activeDragGrids.has(grid)) {
     if (options.editing) return;
-    activeDragCancels.get(grid)?.();
+    activeDragGrids.delete(grid);
   }
+
   let scopeIndex = 0;
   for (const cell of [...grid.children]) {
     if (!(cell instanceof HTMLElement)) continue;
+    cell.querySelector(":scope > .area-card-drag-handle")?.remove();
     if (cell.classList.contains(PIN_ORDER_CLASS) || cell.classList.contains(BG_SECTION_CLASS)) continue;
     if (isTitleCell(cell)) {
       scopeIndex += 1;
       delete cell.dataset.editDraggable;
       delete cell.dataset.editScope;
       delete cell.dataset.editEntity;
-      cell.querySelector(":scope > .area-card-drag-handle")?.remove();
       continue;
     }
     const entityId = options.editing ? pinEntityId(rowConfig(cell)) : null;
@@ -1118,98 +1182,61 @@ export function syncSectionDragOrder(
       delete cell.dataset.editDraggable;
       delete cell.dataset.editScope;
       delete cell.dataset.editEntity;
-      cell.querySelector(":scope > .area-card-drag-handle")?.remove();
       continue;
     }
     cell.dataset.editDraggable = "1";
     cell.dataset.editScope = String(scopeIndex);
     cell.dataset.editEntity = entityId;
-    let handle = cell.querySelector(":scope > .area-card-drag-handle");
-    if (!handle) {
-      handle = document.createElement("div");
-      handle.className = "area-card-drag-handle";
-      handle.setAttribute("aria-hidden", "true");
-      const icon = document.createElement("ha-icon");
-      icon.setAttribute("icon", "mdi:drag");
-      handle.append(icon);
-      cell.append(handle);
-    }
+  }
 
-    let initialScopeElements: HTMLElement[] = [];
+  if (!options.editing) {
+    sectionSortables.get(grid)?.destroy();
+    sectionSortables.delete(grid);
+    sectionReorderCallbacks.delete(grid);
+    return;
+  }
+
+  sectionReorderCallbacks.set(grid, options.onReorderScope);
+
+  if (!sectionSortables.has(grid)) {
     let initialScopeIds: string[] = [];
-
-    attachPointerDrag(cell, {
-      grid,
-      handleOnly: true,
-      beginDrag: (dragged, rect) => {
-        const scope = dragged.dataset.editScope ?? "";
-        initialScopeElements = scopeSlotElements(grid, scope, true);
-        initialScopeIds = initialScopeElements
-          .map((el) => el.dataset.editEntity)
-          .filter((id): id is string => Boolean(id));
-
-        const placeholder = document.createElement("div");
-        const preservedClasses = dragged.className
-          .split(/\s+/)
-          .filter((c) => c && c !== "area-card-dragging");
-        placeholder.className = [...preservedClasses, "area-card-drag-placeholder"].join(" ");
-        placeholder.dataset.editScope = scope;
-        placeholder.dataset.editEntity = dragged.dataset.editEntity ?? "";
-        placeholder.style.height = `${rect.height}px`;
-        if (dragged.style.gridColumn) placeholder.style.gridColumn = dragged.style.gridColumn;
-        if (dragged.style.gridRow) placeholder.style.gridRow = dragged.style.gridRow;
-        grid.insertBefore(placeholder, dragged);
-        return placeholder;
+    const sortable = sortableFactory(grid, {
+      ...baseSortableOptions(),
+      draggable: ".card[data-edit-draggable='1']",
+      filter: ".area-card-pin-switch, .area-card-pin-menu, .area-card-bg-option",
+      preventOnFilter: false,
+      onStart: (evt) => {
+        hydrateSortableGhost(evt.item);
+        activeDragGrids.add(grid);
+        const scope = evt.item instanceof HTMLElement ? evt.item.dataset.editScope : undefined;
+        initialScopeIds = scope
+          ? scopeSlotElements(grid, scope)
+              .map((el) => el.dataset.editEntity)
+              .filter((id): id is string => Boolean(id))
+          : [];
       },
-      getSiblings: (dragged) => {
-        const scope = dragged.dataset.editScope;
-        if (!scope) return [];
-        return scopeSlotElements(grid, scope, false).filter(
-          (el) => el !== dragged && !el.classList.contains("area-card-drag-placeholder"),
-        );
+      onMove: (evt) => {
+        const dragScope = evt.dragged instanceof HTMLElement ? evt.dragged.dataset.editScope : undefined;
+        const targetScope = evt.related instanceof HTMLElement ? evt.related.dataset.editScope : undefined;
+        return canDropInScope(dragScope, targetScope);
       },
-      getOrderedSlots: (placeholder) => {
-        const scope = placeholder.dataset.editScope;
-        if (!scope) return [];
-        return scopeSlotElements(grid, scope, false);
-      },
-      reorderToTarget: (placeholder, target) => {
-        const scope = placeholder.dataset.editScope;
-        if (!scope || !canDropInScope(scope, target.dataset.editScope)) return;
-        const slots = scopeSlotElements(grid, scope, false);
-        const fromIdx = slots.indexOf(placeholder);
-        const toIdx = slots.indexOf(target);
-        if (fromIdx === -1 || toIdx === -1 || fromIdx === toIdx) return;
-        if (fromIdx < toIdx) {
-          const targetIdx = [...grid.children].indexOf(target);
-          const afterTarget = targetIdx !== -1 ? (grid.children[targetIdx + 1] ?? null) : null;
-          grid.insertBefore(placeholder, afterTarget);
-        } else {
-          grid.insertBefore(placeholder, target);
-        }
-      },
-      commitDrag: (dragged, placeholder) => {
-        grid.insertBefore(dragged, placeholder);
-        placeholder.remove();
-        const scope = dragged.dataset.editScope;
-        const fromId = dragged.dataset.editEntity;
+      onEnd: (evt) => {
+        activeDragGrids.delete(grid);
+        if (!(evt.item instanceof HTMLElement)) return;
+        const scope = evt.item.dataset.editScope;
+        const fromId = evt.item.dataset.editEntity;
         if (!scope || !fromId) return;
-        const scopeCells = scopeSlotElements(grid, scope, true);
-        const scopeIds = scopeCells
+        const scopeIds = scopeSlotElements(grid, scope)
           .map((el) => el.dataset.editEntity)
           .filter((id): id is string => Boolean(id));
-        const changed = scopeIds.some((id, idx) => id !== initialScopeIds[idx]);
+        const changed =
+          scopeIds.length === initialScopeIds.length &&
+          scopeIds.some((id, idx) => id !== initialScopeIds[idx]);
         if (changed) {
-          options.onReorderScope(fromId, scopeIds);
+          sectionReorderCallbacks.get(grid)?.(fromId, scopeIds);
         }
-      },
-      revertDrag: (_dragged, placeholder) => {
-        const anchor = placeholder;
-        for (const el of initialScopeElements) {
-          grid.insertBefore(el, anchor);
-        }
-        placeholder.remove();
       },
     });
+    sectionSortables.set(grid, sortable);
   }
 }

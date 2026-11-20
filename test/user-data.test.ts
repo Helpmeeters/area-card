@@ -554,4 +554,42 @@ describe("frontend user data", { concurrency: 1 }, () => {
     assert.equal(cachedFloorCollapsedAreas("up"), 3);
     assert.equal(cachedFloorSortByPresence("up"), false);
   });
+
+  it("preserves solo flags on pins across saveAreaPins and subscription updates", async () => {
+    const harness = createHarness();
+    const pending = ensureUserData(harness.hass);
+    harness.emit({
+      [pinnedKey("living_room")]: [
+        "light.den_corner_lamp",
+        "media_player.austin_apple_tv",
+        { id: "light.den_work_lamp", mode: "always", solo: true },
+      ],
+    });
+    await pending;
+
+    assert.deepEqual(cachedPins("living_room"), {
+      always: ["light.den_corner_lamp", "media_player.austin_apple_tv", "light.den_work_lamp"],
+      whenOn: [],
+      solo: ["light.den_work_lamp"],
+      background: [],
+    });
+
+    const next: AreaPins = {
+      always: ["light.den_work_lamp", "media_player.austin_apple_tv", "light.den_corner_lamp"],
+      whenOn: [],
+      solo: ["light.den_corner_lamp"],
+      background: [],
+    };
+    await saveAreaPins(harness.hass, "living_room", next);
+    assert.deepEqual(cachedPins("living_room"), next);
+    assert.deepEqual(harness.calls.at(-1), {
+      type: "frontend/set_user_data",
+      key: pinnedKey("living_room"),
+      value: [
+        "light.den_work_lamp",
+        "media_player.austin_apple_tv",
+        { id: "light.den_corner_lamp", mode: "always", solo: true },
+      ],
+    });
+  });
 });
