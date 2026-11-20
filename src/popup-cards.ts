@@ -2,6 +2,7 @@ import { CAMERA_ROW_TAG } from "./camera-detections";
 import { formatDeviceSensors, sensorLabel } from "./device-row";
 import { mergeEntityOrder, type AreaEntityOrder } from "./entity-order";
 import { kioskSatelliteCardType } from "./kiosk-card";
+import { lightTintBackgroundStyles, type RgbColor } from "./light-tint";
 import { stripRoomName } from "./names";
 import { pictureBackgroundStyles } from "./picture";
 import { popupChromeStyles } from "./popup-chrome";
@@ -23,6 +24,7 @@ export interface PopupLayout {
    */
   literalState?: boolean;
   entityOrder?: AreaEntityOrder;
+  lightTint?: RgbColor | null;
 }
 
 interface RowLayout {
@@ -62,7 +64,10 @@ export function buildPopupConfig(
     background_update: true,
     cards: buildPopupCards(sections, states, name, disabledAutomations, layout),
   };
-  config.styles = popupChromeStyles(picture ? pictureBackgroundStyles(picture, "popup") : undefined);
+  const pictureStyles = picture ? pictureBackgroundStyles(picture, "popup") : undefined;
+  const tintStyles =
+    !picture && layout?.lightTint ? lightTintBackgroundStyles(layout.lightTint, "popup") : undefined;
+  config.styles = popupChromeStyles(pictureStyles, tintStyles);
   return config;
 }
 

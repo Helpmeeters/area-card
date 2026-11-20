@@ -15,8 +15,8 @@ All three cards ship in one bundle (`area-card.js`), alongside prefixed vendor b
 ### Area Metadata & Pictures
 
 - Reads the area name, icon, and picture from Home Assistant's area registry, and opens a `#area-<area_id>` popup filled from entities assigned to that area.
-- The popup photo uses the area picture, fits the dialog width, and sits at the top.
-- By default, the collapsed button uses a live light-color averaging background (`Light tint`). When configured to use `Area picture` or a `Camera` background, that background applies to the collapsed button (or to the cluster behind pinned rows when pinned rows are showing, leaving pinned fills clear); the popup photo remains the area picture.
+- The popup photo uses the selected background (`Area picture`, `Media artwork`, or `Camera` still) when a picture is active, fits the dialog width, and sits at the top.
+- By default, the collapsed button and popup use a live light-color averaging background (`Light tint`). When configured to use `Area picture`, `Media artwork`, or a `Camera` background, that background applies to the collapsed button (or to the cluster behind pinned rows when pinned rows are showing, leaving pinned fills clear) as well as the popup dialog.
 
 ### Presence Pill
 
@@ -146,7 +146,8 @@ Each popup section heading uses its section icon to the left of the title.
      - **Card Background** selector (per-area setting, persisted per Home Assistant user across browsers):
        - **`Light tint`** *(default)*: live light-color averaging background on the collapsed card.
        - **`Area picture`**: uses the area's registry picture as the collapsed card background.
-       - **`Camera: <name>`**: replaces the collapsed card background with that camera's muted, autoplaying, cover-cropped live video (no play button). The still stays visible until a frame renders; the area picture stays if the camera has no stream or playback fails. The popup photo stays the area picture.
+       - **`Media artwork`** *(shown when the area has at least one media player)*: uses the current media artwork (`entity_picture`) from an active media player in the area (preferring `playing`/`buffering`/`on` over `paused`), falling back to the area picture when nothing is playing or no artwork is available.
+       - **`Camera: <name>`**: replaces the collapsed card background with that camera's muted, autoplaying, cover-cropped live video (no play button). The still stays visible until a frame renders; the area picture stays if the camera has no stream or playback fails. The popup uses the camera still (falling back to the area picture).
 - **Pin menu button** on each entity row with three options (**Hidden**, **Always**, **While on** — each showing its icon and title), plus a fourth **`Pin to <name> chip`** option on **Other Sensors** rows whose device has a single primary-section entity:
   - **Always**: keeps the row pinned under the collapsed area button.
   - **While on**: shows the row only while that entity is on or playing, and for 2 minutes after it stops (a reload clears the 2-minute grace).

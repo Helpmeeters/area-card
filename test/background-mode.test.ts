@@ -29,6 +29,8 @@ describe("parseAreaBackground and serializeAreaBackground", () => {
   it("parses and serializes all valid modes", () => {
     assert.deepEqual(parseAreaBackground({ mode: "light-tint" }), { mode: "light-tint" });
     assert.deepEqual(parseAreaBackground({ mode: "area-picture" }), { mode: "area-picture" });
+    assert.deepEqual(parseAreaBackground({ mode: "media-artwork" }), { mode: "media-artwork" });
+    assert.deepEqual(parseAreaBackground("media-artwork"), { mode: "media-artwork" });
     assert.deepEqual(parseAreaBackground({ mode: "camera", entityId: "camera.front" }), {
       mode: "camera",
       entityId: "camera.front",
@@ -39,6 +41,7 @@ describe("parseAreaBackground and serializeAreaBackground", () => {
     );
     assert.deepEqual(serializeAreaBackground({ mode: "light-tint" }), { mode: "light-tint" });
     assert.deepEqual(serializeAreaBackground({ mode: "area-picture" }), { mode: "area-picture" });
+    assert.deepEqual(serializeAreaBackground({ mode: "media-artwork" }), { mode: "media-artwork" });
     assert.deepEqual(serializeAreaBackground({ mode: "camera", entityId: "camera.front" }), {
       mode: "camera",
       entityId: "camera.front",
@@ -49,6 +52,8 @@ describe("parseAreaBackground and serializeAreaBackground", () => {
 describe("areaBackgroundEqual", () => {
   it("compares modes and camera entity ids", () => {
     assert.equal(areaBackgroundEqual({ mode: "light-tint" }, { mode: "light-tint" }), true);
+    assert.equal(areaBackgroundEqual({ mode: "media-artwork" }, { mode: "media-artwork" }), true);
+    assert.equal(areaBackgroundEqual({ mode: "media-artwork" }, { mode: "area-picture" }), false);
     assert.equal(areaBackgroundEqual({ mode: "area-picture" }, { mode: "light-tint" }), false);
     assert.equal(
       areaBackgroundEqual(

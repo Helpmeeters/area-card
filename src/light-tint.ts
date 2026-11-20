@@ -153,7 +153,7 @@ export function averageLightColor(
  */
 export function lightTintBackgroundStyles(
   rgb: RgbColor,
-  surface: "button" | "cluster" = "button",
+  surface: "button" | "cluster" | "popup" = "button",
 ): string {
   const r = clampByte(rgb.r);
   const g = clampByte(rgb.g);
@@ -161,6 +161,14 @@ export function lightTintBackgroundStyles(
 
   if (surface === "cluster") {
     return `background: linear-gradient(135deg, rgba(${r}, ${g}, ${b}, 0.22), rgba(${r}, ${g}, ${b}, 0.08)) !important;`;
+  }
+
+  if (surface === "popup") {
+    return [
+      ".bubble-pop-up-background {",
+      `  background: linear-gradient(135deg, rgba(${r}, ${g}, ${b}, 0.24), rgba(${r}, ${g}, ${b}, 0.10)) !important;`,
+      "}",
+    ].join("\n");
   }
 
   return [

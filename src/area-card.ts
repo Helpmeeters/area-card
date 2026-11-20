@@ -75,6 +75,7 @@ import {
 } from "./popup-edit";
 import { visiblePinnedIds, type PinStickyState } from "./pin-visibility";
 import {
+  areaMediaArtwork,
   backgroundCameraId,
   buttonPictureSuppressStyles,
   cameraEntityPicture,
@@ -94,7 +95,7 @@ import {
 import { syncAreaEditButton, syncCloseButtonTooltip, syncPinEditButton } from "./header-tooltips";
 import { areaSettingsPath, ensureHeaderButtons } from "./popup-chrome";
 import { withoutSections, type RollupId, type SectionRollup } from "./rollups";
-import { areaUnavailable, membershipKey, type ClassifierHass } from "./sections";
+import { areaMediaPlayers, areaUnavailable, membershipKey, type ClassifierHass } from "./sections";
 import { BUBBLE_ELEMENT } from "./tags";
 import {
   backgroundModeKey,
@@ -354,6 +355,7 @@ class AreaCard extends HTMLElement {
   private lightIds: readonly string[] = [];
   private resolvedLightTint: RgbColor | null = null;
   private cameraOrder: readonly string[] = [];
+  private mediaPlayerOrder: readonly string[] = [];
   private buttonInput?: ButtonConfigInput;
   private cameraLoads = new Map<string, CameraPictureLoad>();
   /** Last still that loaded for a camera, held while a refreshed URL is loading. */
@@ -478,6 +480,7 @@ class AreaCard extends HTMLElement {
       if (key === backgroundModeKey(areaId)) {
         this.syncPinnedRow(hass, areaId);
         this.applyAreaEdit();
+        this.schedule();
         return;
       }
       if (key !== pinnedKey(areaId)) return;
@@ -551,7 +554,9 @@ class AreaCard extends HTMLElement {
     this.areaPhoto = demo ? null : seeded.picture;
     this.cameraOrder = demo ? [] : seeded.sections.cameras;
     const bgMode = cachedAreaBackground(seeded.areaId);
-    const visibleLightIds = withoutSections(seeded.sections, latest.hide_sections).lights;
+    const visiblePre = withoutSections(seeded.sections, latest.hide_sections);
+    this.mediaPlayerOrder = demo ? [] : areaMediaPlayers(visiblePre);
+    const visibleLightIds = visiblePre.lights;
     this.lightIds = visibleLightIds;
     this.resolvedLightTint =
       bgMode.mode === "light-tint" ? averageLightColor(visibleLightIds, seeded.states) : null;
@@ -569,6 +574,7 @@ class AreaCard extends HTMLElement {
       viewportWidth,
       shownPicture,
       lightTint: this.pinnedRowsVisible ? null : this.resolvedLightTint,
+      popupLightTint: this.resolvedLightTint,
       unavailable,
       entityOrder: this.effectiveEntityOrder(seeded.areaId),
       chipPins: this.effectivePins(seeded.areaId).chip,
@@ -578,6 +584,7 @@ class AreaCard extends HTMLElement {
     const { name, icon, sections } = view.content;
     this.roomName = name;
     const visibleSections = view.sections;
+    if (!demo) this.mediaPlayerOrder = areaMediaPlayers(visibleSections);
     const states = view.content.states;
     const signature = membershipKey(areaId, name, icon, sections);
     this.entityScopes = entityScopeMap(visibleSections);
@@ -874,6 +881,7 @@ class AreaCard extends HTMLElement {
           current: cachedAreaBackground(areaId),
           areaPicture: this.areaPhoto,
           cameras: this.cameraOrder,
+          mediaPlayers: this.mediaPlayerOrder,
           states: this._hass.states,
           roomName: this.roomName,
           onSelect: (choice) => this.backgroundSelected(areaId, choice),
@@ -946,6 +954,7 @@ class AreaCard extends HTMLElement {
         if (this._hass !== hass || this.boundAreaId() !== areaId) return;
         this.syncPinnedRow(hass, areaId);
         this.applyAreaEdit();
+        this.schedule();
       },
       () => {
         // A rejected save leaves the cache and the on-screen background unchanged.
@@ -1275,6 +1284,15 @@ class AreaCard extends HTMLElement {
       this.heldCamera = null;
       return area;
     }
+    if (bgMode.mode === "media-artwork") {
+      this.heldCamera = null;
+      const artwork = areaMediaArtwork(
+        this.mediaPlayerOrder,
+        (id) => hass.states?.[id],
+        (raw) => (typeof hass.hassUrl === "function" ? hass.hassUrl(raw) : raw),
+      );
+      return artwork ?? area;
+    }
     const chosen = backgroundCameraId(bgMode, this.cameraOrder);
     const candidate = collapsedPictureForMode(bgMode, area, this.cameraOrder, (id) => {
       const raw = cameraEntityPicture(hass.states?.[id]);
@@ -1307,7 +1325,10 @@ class AreaCard extends HTMLElement {
         const shown = this.resolveCollapsedPicture(hass, areaId);
         const previous = this.areaPicture;
         this.applyShownPicture(hass, shown);
-        if (shown !== previous) this.syncPicturePlacement(this.pinnedRowsVisible);
+        if (shown !== previous) {
+          this.syncPicturePlacement(this.pinnedRowsVisible);
+          this.schedule();
+        }
       });
     };
     image.onload = () => finish("loaded");

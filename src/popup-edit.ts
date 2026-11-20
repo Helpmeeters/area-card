@@ -730,6 +730,7 @@ export interface CardBackgroundOption {
 export function cardBackgroundOptions(options: {
   areaPicture: string | null | undefined;
   cameras: readonly string[];
+  mediaPlayers?: readonly string[];
   states?: Record<string, EntityState | undefined>;
   roomName?: string;
 }): CardBackgroundOption[] {
@@ -738,6 +739,9 @@ export function cardBackgroundOptions(options: {
   ];
   if (typeof options.areaPicture === "string" && options.areaPicture.length > 0) {
     choices.push({ label: "Area picture", mode: { mode: "area-picture" } });
+  }
+  if (options.mediaPlayers && options.mediaPlayers.length > 0) {
+    choices.push({ label: "Media artwork", mode: { mode: "media-artwork" } });
   }
   for (const entityId of options.cameras) {
     const rawName = options.states?.[entityId]?.attributes?.friendly_name;
@@ -771,6 +775,7 @@ export function syncCardBackgroundSection(
     current: AreaBackgroundMode;
     areaPicture: string | null | undefined;
     cameras: readonly string[];
+    mediaPlayers?: readonly string[];
     states?: Record<string, EntityState | undefined>;
     roomName?: string;
     onSelect: (mode: AreaBackgroundMode) => void;
@@ -808,6 +813,7 @@ export function syncCardBackgroundSection(
   const choices = cardBackgroundOptions({
     areaPicture: options.areaPicture,
     cameras: options.cameras,
+    mediaPlayers: options.mediaPlayers,
     states: options.states,
     roomName: options.roomName,
   });

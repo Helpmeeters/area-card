@@ -588,10 +588,25 @@ describe("popup-edit DOM behavior", () => {
     const choices = cardBackgroundOptions({
       areaPicture: "/local/kitchen.jpg",
       cameras: ["camera.front"],
+      mediaPlayers: ["media_player.kitchen"],
       states: hass.states,
       roomName: "Kitchen",
     });
     assert.deepEqual(choices, [
+      { label: "Light tint (default)", mode: { mode: "light-tint" } },
+      { label: "Area picture", mode: { mode: "area-picture" } },
+      { label: "Media artwork", mode: { mode: "media-artwork" } },
+      { label: "Camera: Front", mode: { mode: "camera", entityId: "camera.front" } },
+    ]);
+
+    const withoutMedia = cardBackgroundOptions({
+      areaPicture: "/local/kitchen.jpg",
+      cameras: ["camera.front"],
+      mediaPlayers: [],
+      states: hass.states,
+      roomName: "Kitchen",
+    });
+    assert.deepEqual(withoutMedia, [
       { label: "Light tint (default)", mode: { mode: "light-tint" } },
       { label: "Area picture", mode: { mode: "area-picture" } },
       { label: "Camera: Front", mode: { mode: "camera", entityId: "camera.front" } },

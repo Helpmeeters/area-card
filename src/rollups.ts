@@ -354,7 +354,7 @@ export function withoutSections(sections: AreaSections, hide: readonly RollupId[
       case "switches": dropDeviceSensors(result.switches); result.switches = []; break;
       case "occupancy": dropDeviceSensors(result.occupancy.map((o) => o.entityId)); result.occupancy = []; break;
       case "openings": dropDeviceSensors(result.openings); result.openings = []; break;
-      case "satellites": result.satellites = []; break;
+      case "satellites": result.satellites = []; result.satelliteMediaPlayers = undefined; break;
       case "helpers": result.helpers = []; result.selects = []; break;
       case "automations": result.automations = []; break;
       case "sensors":

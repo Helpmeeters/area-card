@@ -6,7 +6,9 @@ import {
   cameraFrameReady,
   cameraPlaybackGuardStyles,
 } from "../src/camera-video";
+import { areaMediaPlayers, emptySections } from "../src/sections";
 import {
+  areaMediaArtwork,
   buttonPictureSuppressStyles,
   cameraEntityPicture,
   cameraStreamPath,
@@ -198,5 +200,47 @@ describe("picture placement", () => {
     assert.equal(css.includes("overflow"), false);
     assert.equal(css.includes("linear-gradient"), false);
     assert.equal(css.includes(".bubble-pop-up"), false);
+  });
+});
+
+describe("areaMediaArtwork", () => {
+  it("prefers playing/buffering/on over paused over idle and ignores off/unavailable", () => {
+    const states: Record<string, { state: string; attributes: Record<string, unknown> }> = {
+      "media_player.idle": { state: "idle", attributes: { entity_picture: "/api/media/idle.jpg" } },
+      "media_player.paused": { state: "paused", attributes: { entity_picture: "/api/media/paused.jpg" } },
+      "media_player.playing": { state: "playing", attributes: { entity_picture: "/api/media/playing.jpg" } },
+      "media_player.off": { state: "off", attributes: { entity_picture: "/api/media/off.jpg" } },
+    };
+    assert.equal(
+      areaMediaArtwork(
+        ["media_player.idle", "media_player.paused", "media_player.playing"],
+        (id) => states[id],
+        (raw) => `https://ha.local${raw}`,
+      ),
+      "https://ha.local/api/media/playing.jpg",
+    );
+    assert.equal(
+      areaMediaArtwork(["media_player.idle", "media_player.paused"], (id) => states[id]),
+      "/api/media/paused.jpg",
+    );
+    assert.equal(
+      areaMediaArtwork(["media_player.off", "media_player.idle"], (id) => states[id]),
+      "/api/media/idle.jpg",
+    );
+    assert.equal(
+      areaMediaArtwork(["media_player.off"], (id) => states[id]),
+      null,
+    );
+    assert.equal(
+      areaMediaArtwork(["media_player.playing"], () => ({ state: "playing", attributes: {} })),
+      null,
+    );
+  });
+
+  it("includes satellite-paired media players via areaMediaPlayers", () => {
+    const sections = emptySections();
+    sections.mediaPlayers = ["media_player.tv"];
+    sections.satelliteMediaPlayers = ["media_player.updoot", "media_player.tv"];
+    assert.deepEqual(areaMediaPlayers(sections), ["media_player.tv", "media_player.updoot"]);
   });
 });

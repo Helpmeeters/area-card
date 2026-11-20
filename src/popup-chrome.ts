@@ -141,10 +141,12 @@ const POPUP_HEADER_ACTIONS = [
   "}",
 ].join("\n");
 
-export function popupChromeStyles(pictureStyles?: string): string {
+export function popupChromeStyles(pictureStyles?: string, tintStyles?: string): string {
   const title = pictureStyles
     ? [POPUP_TITLE_CHROME, pictureStyles, POPUP_TITLE_ON_PICTURE].join("\n")
-    : POPUP_TITLE_CHROME;
+    : tintStyles
+      ? [POPUP_TITLE_CHROME, tintStyles].join("\n")
+      : POPUP_TITLE_CHROME;
   return [title, POPUP_HEADER_ACTIONS].join("\n");
 }
 

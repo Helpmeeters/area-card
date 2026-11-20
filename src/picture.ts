@@ -235,6 +235,32 @@ export function cameraEntityPicture(
   return typeof picture === "string" && picture.length > 0 ? picture : null;
 }
 
+const MEDIA_PLAYING_STATES = new Set(["playing", "buffering", "on"]);
+const MEDIA_PAUSED_STATES = new Set(["paused"]);
+const MEDIA_IDLE_STATES = new Set(["idle"]);
+
+/**
+ * Current media artwork from the area's media players, in area order.
+ * Prefers playing/buffering/on, then paused, then idle (e.g. Music Assistant /
+ * Kiosk Satellite queues). Off, standby, unknown, and unavailable are ignored.
+ */
+export function areaMediaArtwork(
+  mediaPlayersInAreaOrder: readonly string[],
+  stateOf: (entityId: string) => { state?: string; attributes?: Record<string, unknown> } | null | undefined,
+  resolveUrl?: (raw: string) => string,
+): string | null {
+  for (const states of [MEDIA_PLAYING_STATES, MEDIA_PAUSED_STATES, MEDIA_IDLE_STATES]) {
+    for (const id of mediaPlayersInAreaOrder) {
+      const state = stateOf(id);
+      if (!state || typeof state.state !== "string" || !states.has(state.state)) continue;
+      const picture = state.attributes?.entity_picture;
+      if (typeof picture !== "string" || picture.length === 0) continue;
+      return resolveUrl ? resolveUrl(picture) : picture;
+    }
+  }
+  return null;
+}
+
 export interface CollapsedCameraBackground {
   entityId: string | null;
   area: string | null;
@@ -299,7 +325,7 @@ export function collapsedPictureForMode(
 ): string | null {
   if (bgMode.mode === "light-tint") return null;
   const area = typeof areaPicture === "string" && areaPicture.length > 0 ? areaPicture : null;
-  if (bgMode.mode === "area-picture") return area;
+  if (bgMode.mode !== "camera") return area;
   return collapsedCardPicture(area, camerasInAreaOrder, [bgMode.entityId], imageOf);
 }
 

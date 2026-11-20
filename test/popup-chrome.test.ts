@@ -229,6 +229,16 @@ describe("popup chrome", () => {
     );
     assert.equal(pinStyles.includes("bubble-cards-grid-container"), false);
   });
+
+  it("applies lightTint to the popup background when no picture is set, without forcing white header text", () => {
+    const tinted = String(
+      buildPopupConfig("kitchen", "Kitchen", "mdi:pot-steam", emptySections(), {}, null, new Set(), {
+        lightTint: { r: 255, g: 180, b: 90 },
+      }).styles,
+    );
+    assert.match(tinted, /\.bubble-pop-up-background[\s\S]*rgba\(255,\s*180,\s*90/);
+    assert.equal(tinted.includes("text-shadow: 0 1px 2px rgba(0,0,0,.65)"), false);
+  });
 });
 
 describe("header action tooltips", () => {

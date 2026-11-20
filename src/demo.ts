@@ -65,9 +65,10 @@ export interface PresentAreaOptions {
   alignDots?: boolean;
   formatEntityState?: (state: EntityState, sample?: string) => string;
   viewportWidth?: number;
-  /** Collapsed button picture. Omit to use the area picture. Popup keeps the area picture. */
+  /** Collapsed button picture. Omit to use the area picture. */
   shownPicture?: string | null;
   lightTint?: RgbColor | null;
+  popupLightTint?: RgbColor | null;
   presenceBadge?: PresenceBadge | null;
   unavailable?: boolean;
   entityOrder?: AreaEntityOrder;
@@ -214,13 +215,14 @@ export function presentArea(
       content.icon,
       sections,
       content.states,
-      content.picture,
+      picture,
       disabled,
       {
         viewportWidth: options.viewportWidth,
         formatEntityState: options.formatEntityState,
         literalState: config.demo,
         entityOrder: options.entityOrder,
+        lightTint: options.popupLightTint !== undefined ? options.popupLightTint : lightTint,
       },
     ),
     rollups: sectionRollups(sections, content.states, disabled),

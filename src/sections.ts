@@ -101,6 +101,8 @@ export interface AreaSections {
   lights: string[];
   lightLeds: Record<string, string>;
   mediaPlayers: string[];
+  /** Satellite-paired media players covered by Kiosk Satellite Card (omitted from `mediaPlayers`). */
+  satelliteMediaPlayers?: string[];
   cameras: string[];
   cameraDetections?: Record<string, CameraDetection>;
   switches: string[];
@@ -772,7 +774,17 @@ function dropPlayersShownOnKioskCard(
     covered.add(playerId);
   }
   if (covered.size === 0) return;
+  const dropped = sections.mediaPlayers.filter((id) => covered.has(id));
+  if (dropped.length > 0) sections.satelliteMediaPlayers = dropped;
   sections.mediaPlayers = sections.mediaPlayers.filter((id) => !covered.has(id));
+}
+
+export function areaMediaPlayers(sections: AreaSections): string[] {
+  if (!sections.satelliteMediaPlayers || sections.satelliteMediaPlayers.length === 0) {
+    return sections.mediaPlayers;
+  }
+  const seen = new Set(sections.mediaPlayers);
+  return [...sections.mediaPlayers, ...sections.satelliteMediaPlayers.filter((id) => !seen.has(id))];
 }
 
 function satelliteMediaPlayerId(entityId: string): string | undefined {
