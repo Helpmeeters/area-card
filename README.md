@@ -15,7 +15,7 @@ Each card requires only the selection of an Area or Floor (or nothing at all for
 
 ## Features
 
-- **Automatic Area Discovery** — Pick an area and the card reads its name, icon, picture, and assigned entities, building a `#area-<area_id>` popup organized by domain with **Other Sensors** grouped by device.
+- **Automatic Area Discovery** — Pick an area and the card reads its name, icon, picture, and assigned entities, building a `#area-<area_id>` popup organized by domain with **Other Sensors** grouped by device. Boolean helpers toggle from the popup row icon, the same way on/off lights do; the rest of the row opens more-info.
 - **Status Dots & Tooltips** — Fixed-slot section dots (`lights`, `media`, `cameras`, `switches`, `openings`, `satellites`, `sensors`, `locks`, `vacuums`) with hover tooltips listing every row in that section.
 - **Subtitles & Presence Pill** — Compact subtitle with temperature and humidity readings, helper counts, and automation summaries, plus a presence pill (`Occupied`, recognized person name, relative last-seen, or `Clear`) on collapsed Area Cards and Floor headers with occupancy tooltips.
 - **Camera Detections** — Frigate detection count badges, recognized person identities, unreviewed review-queue badges, and active class tooltips overlaid on camera cards while keeping person occupancy linked to area presence.

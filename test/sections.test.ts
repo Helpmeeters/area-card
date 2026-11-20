@@ -620,6 +620,77 @@ describe("popup and button configs", () => {
     assert.equal(dimmable?.tap_action, undefined);
   });
 
+  it("toggles an input_boolean from the icon and opens more-info from the row", () => {
+    const guest = "input_boolean.guest";
+    const away = "input_boolean.away";
+    const cards = buildPopupCards(
+      {
+        ...emptySections(),
+        helpers: [guest, away, "timer.nap", "binary_sensor.flag"],
+        selects: ["input_select.scene"],
+      },
+      {
+        [guest]: state(guest, "on", { friendly_name: "Guest Mode", icon: "mdi:account" }),
+        [away]: state(away, "off", { friendly_name: "Away Mode" }),
+        "timer.nap": state("timer.nap", "idle", { friendly_name: "Nap" }),
+        "binary_sensor.flag": state("binary_sensor.flag", "off", { friendly_name: "Flag" }),
+        "input_select.scene": state("input_select.scene", "movie", { friendly_name: "Scene" }),
+      },
+    );
+    const on = cards.find((card) => card.entity === guest);
+    const off = cards.find((card) => card.entity === away);
+    const timer = cards.find((card) => card.entity === "timer.nap");
+    const flag = cards.find((card) => card.entity === "binary_sensor.flag");
+    const select = cards.find((card) => card.entity === "input_select.scene");
+
+    assert.equal(on?.type, "custom:area-card-mushroom-template-card");
+    assert.equal(on?.primary, "Guest Mode");
+    assert.equal(on?.secondary, "{{ states('input_boolean.guest') | title }}");
+    assert.equal(
+      on?.icon,
+      "{{ state_attr('input_boolean.guest', 'icon') or ('mdi:check-circle-outline' if is_state('input_boolean.guest', 'on') else 'mdi:close-circle-outline') }}",
+    );
+    assert.equal(on?.icon_color, "{{ 'amber' if is_state('input_boolean.guest', 'on') else 'grey' }}");
+    assert.deepEqual(on?.tap_action, { action: "more-info" });
+    assert.deepEqual(on?.hold_action, { action: "more-info" });
+    assert.deepEqual(on?.icon_tap_action, {
+      action: "perform-action",
+      perform_action: "input_boolean.toggle",
+      target: { entity_id: guest },
+    });
+    assert.deepEqual(on?.icon_hold_action, { action: "more-info" });
+
+    assert.equal(off?.type, "custom:area-card-mushroom-template-card");
+    assert.deepEqual((off?.icon_tap_action as { target: { entity_id: string } }).target, { entity_id: away });
+    assert.equal(off?.tap_action && (off.tap_action as { action: string }).action, "more-info");
+
+    assert.equal(String(timer?.type).includes("entity-card"), true);
+    assert.equal(timer?.icon_tap_action, undefined);
+    assert.equal(String(flag?.type).includes("entity-card"), true);
+    assert.equal(flag?.icon_tap_action, undefined);
+    assert.equal(String(select?.type).includes("select-card"), true);
+    assert.equal(select?.icon_tap_action, undefined);
+
+    const literal = buildPopupCards(
+      { ...emptySections(), helpers: [guest, away] },
+      {
+        [guest]: state(guest, "on", { friendly_name: "Guest Mode", icon: "mdi:account" }),
+        [away]: state(away, "off", { friendly_name: "Away Mode" }),
+      },
+      "",
+      new Set(),
+      { literalState: true },
+    );
+    const literalOn = literal.find((card) => card.entity === guest);
+    const literalOff = literal.find((card) => card.entity === away);
+    assert.equal(literalOn?.icon, "mdi:account");
+    assert.equal(literalOn?.icon_color, "amber");
+    assert.equal(literalOn?.secondary, "On");
+    assert.equal(literalOff?.icon, "mdi:close-circle-outline");
+    assert.equal(literalOff?.icon_color, "grey");
+    assert.equal(literalOff?.secondary, "Off");
+  });
+
   it("keeps every brightness, color, and color-temperature mode on the light card", () => {
     for (const mode of ["brightness", "color_temp", "hs", "xy", "rgb", "rgbw", "rgbww", "white"]) {
       const entity = `light.${mode}`;

@@ -276,20 +276,22 @@ function sectionBody(
         [...sections.selects, ...sections.helpers],
         rows.entityOrder?.helpers,
       );
-      return combined.map((entity) =>
-        selectsSet.has(entity)
-          ? named(
-              {
-                type: mushroomCardType("select-card"),
-                entity,
-                grid_options: gridFor(rows, entityTitle(entity, states, roomName), selectSecondaries(states[entity], rows)),
-              },
+      return combined.map((entity) => {
+        if (selectsSet.has(entity)) {
+          return named(
+            {
+              type: mushroomCardType("select-card"),
               entity,
-              states,
-              roomName,
-            )
-          : entityCard(entity, states, roomName, rows),
-      );
+              grid_options: gridFor(rows, entityTitle(entity, states, roomName), selectSecondaries(states[entity], rows)),
+            },
+            entity,
+            states,
+            roomName,
+          );
+        }
+        if (entity.startsWith("input_boolean.")) return booleanHelperCard(entity, states, roomName, rows);
+        return entityCard(entity, states, roomName, rows);
+      });
     }
     case "automations":
       return sections.automations.map((entity) =>
@@ -558,6 +560,43 @@ function entityCard(
     states,
     roomName,
   );
+}
+
+const BOOLEAN_ON_ICON = "mdi:check-circle-outline";
+const BOOLEAN_OFF_ICON = "mdi:close-circle-outline";
+
+/**
+ * Same split as an on/off light: the icon toggles, and the rest of the row
+ * opens more-info. The entity card binds one action to the whole row.
+ */
+function booleanHelperCard(
+  entity: string,
+  states: Record<string, EntityState>,
+  roomName: string,
+  layout: RowLayout,
+): Record<string, unknown> {
+  const title = entityTitle(entity, states, roomName);
+  const state = states[entity];
+  const literal = layout.literalState;
+  const on = state?.state === "on";
+  return {
+    type: mushroomCardType("template-card"),
+    entity,
+    entity_id: entity,
+    primary: title,
+    secondary: literal ? shownState(state) : `{{ states('${entity}') | title }}`,
+    icon: literal
+      ? shownIcon(state, on ? BOOLEAN_ON_ICON : BOOLEAN_OFF_ICON)
+      : `{{ state_attr('${entity}', 'icon') or ('${BOOLEAN_ON_ICON}' if is_state('${entity}', 'on') else '${BOOLEAN_OFF_ICON}') }}`,
+    icon_color: literal ? (on ? "amber" : "grey") : `{{ 'amber' if is_state('${entity}', 'on') else 'grey' }}`,
+    tap_action: { action: "more-info" },
+    hold_action: { action: "more-info" },
+    double_tap_action: { action: "none" },
+    icon_tap_action: performAction("input_boolean.toggle", entity),
+    icon_hold_action: { action: "more-info" },
+    icon_double_tap_action: { action: "none" },
+    grid_options: gridFor(layout, title, entitySecondaries(state, layout)),
+  };
 }
 
 function climateCard(

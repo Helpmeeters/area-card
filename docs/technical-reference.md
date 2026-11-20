@@ -121,6 +121,7 @@ Each popup section heading uses its section icon to the left of the title.
 - **Other Sensors, Locks, Vacuums**: follow Satellites in that order. An Other Sensors row is an entity card (non-climate `sensor.*` and non-opening/occupancy `binary_sensor.*` entities), grouped by device under a device subheading when assigned to a named device. Lock and vacuum rows are full width.
 - **Buttons, Scenes, Scripts**: follow Vacuums, before Helpers. Tapping a button or input button presses it (holding opens more-info). Tapping a scene or script turns it on.
 - **Helpers & Automations**:
+  - `input_boolean` helpers toggle from the icon while the rest of the row opens more-info.
   - Automations assigned to the area, and automations whose name contains the room name, are listed under **Automations**.
   - An automation is **Disabled** when every trigger depends on an unavailable device (time, sun, or other triggers that can still fire keep it enabled). Disabled automations stay in the list, show `Disabled`, and do not count as on.
 
