@@ -146,7 +146,7 @@ Each popup section heading uses its section icon to the left of the title.
      - **Card Background** selector (per-area setting, persisted per Home Assistant user across browsers):
        - **`Light tint`** *(default)*: live light-color averaging background on the collapsed card.
        - **`Area picture`**: uses the area's registry picture as the collapsed card background.
-       - **`Media artwork`** *(shown when the area has at least one media player)*: uses the current media artwork (`entity_picture`) from an active media player in the area (preferring `playing`/`buffering`/`on` over `paused`), falling back to the area picture when nothing is playing or no artwork is available.
+       - **`Media: <name>`** *(one option per media player in the area)*: uses that media player's current artwork (`entity_picture`) while `playing`, `buffering`, `on`, `paused`, or `idle`, falling back to the area picture when off or when no artwork is available.
        - **`Camera: <name>`**: replaces the collapsed card background with that camera's muted, autoplaying, cover-cropped live video (no play button). The still stays visible until a frame renders; the area picture stays if the camera has no stream or playback fails. The popup uses the camera still (falling back to the area picture).
 - **Pin menu button** on each entity row with three options (**Hidden**, **Always**, **While on** — each showing its icon and title), plus a fourth **`Pin to <name> chip`** option on **Other Sensors** rows whose device has a single primary-section entity:
   - **Always**: keeps the row pinned under the collapsed area button.

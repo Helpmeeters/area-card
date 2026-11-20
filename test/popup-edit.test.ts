@@ -580,6 +580,7 @@ describe("popup-edit DOM behavior", () => {
       states: {
         "light.a": { state: "on", attributes: {} },
         "light.b": { state: "on", attributes: {} },
+        "media_player.kitchen": { state: "playing", attributes: { friendly_name: "Kitchen Speaker" } },
         "camera.front": { state: "idle", attributes: { friendly_name: "Kitchen Front" } },
       },
     };
@@ -595,7 +596,7 @@ describe("popup-edit DOM behavior", () => {
     assert.deepEqual(choices, [
       { label: "Light tint (default)", mode: { mode: "light-tint" } },
       { label: "Area picture", mode: { mode: "area-picture" } },
-      { label: "Media artwork", mode: { mode: "media-artwork" } },
+      { label: "Media: Speaker", mode: { mode: "media-artwork", entityId: "media_player.kitchen" } },
       { label: "Camera: Front", mode: { mode: "camera", entityId: "camera.front" } },
     ]);
 

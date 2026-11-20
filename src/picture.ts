@@ -307,6 +307,15 @@ export function collapsedCardPicture(
   return choice.still ?? choice.area;
 }
 
+/** Chosen media player entity id when `bgMode` is `"media-artwork"` and that player is in the area. */
+export function backgroundMediaPlayerId(
+  bgMode: AreaBackgroundMode,
+  mediaPlayersInAreaOrder: readonly string[],
+): string | null {
+  if (bgMode.mode !== "media-artwork") return null;
+  return mediaPlayersInAreaOrder.includes(bgMode.entityId) ? bgMode.entityId : null;
+}
+
 /** Chosen camera entity id when `bgMode` is `"camera"` and that camera is in the area. */
 export function backgroundCameraId(
   bgMode: AreaBackgroundMode,

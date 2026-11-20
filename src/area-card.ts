@@ -77,6 +77,7 @@ import { visiblePinnedIds, type PinStickyState } from "./pin-visibility";
 import {
   areaMediaArtwork,
   backgroundCameraId,
+  backgroundMediaPlayerId,
   buttonPictureSuppressStyles,
   cameraEntityPicture,
   cameraStreamPath,
@@ -1286,11 +1287,14 @@ class AreaCard extends HTMLElement {
     }
     if (bgMode.mode === "media-artwork") {
       this.heldCamera = null;
-      const artwork = areaMediaArtwork(
-        this.mediaPlayerOrder,
-        (id) => hass.states?.[id],
-        (raw) => (typeof hass.hassUrl === "function" ? hass.hassUrl(raw) : raw),
-      );
+      const chosen = backgroundMediaPlayerId(bgMode, this.mediaPlayerOrder);
+      const artwork = chosen
+        ? areaMediaArtwork(
+            [chosen],
+            (id) => hass.states?.[id],
+            (raw) => (typeof hass.hassUrl === "function" ? hass.hassUrl(raw) : raw),
+          )
+        : null;
       return artwork ?? area;
     }
     const chosen = backgroundCameraId(bgMode, this.cameraOrder);

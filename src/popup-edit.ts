@@ -740,8 +740,18 @@ export function cardBackgroundOptions(options: {
   if (typeof options.areaPicture === "string" && options.areaPicture.length > 0) {
     choices.push({ label: "Area picture", mode: { mode: "area-picture" } });
   }
-  if (options.mediaPlayers && options.mediaPlayers.length > 0) {
-    choices.push({ label: "Media artwork", mode: { mode: "media-artwork" } });
+  for (const entityId of options.mediaPlayers ?? []) {
+    const rawName = options.states?.[entityId]?.attributes?.friendly_name;
+    const playerName =
+      typeof rawName === "string" && rawName.trim() !== ""
+        ? options.roomName
+          ? stripRoomName(rawName, options.roomName)
+          : rawName.trim()
+        : entityId;
+    choices.push({
+      label: `Media: ${playerName}`,
+      mode: { mode: "media-artwork", entityId },
+    });
   }
   for (const entityId of options.cameras) {
     const rawName = options.states?.[entityId]?.attributes?.friendly_name;
@@ -765,7 +775,9 @@ interface BgOptionButton extends HTMLButtonElement {
 }
 
 function backgroundOptionKey(mode: AreaBackgroundMode): string {
-  return mode.mode === "camera" ? `camera:${mode.entityId}` : mode.mode;
+  if (mode.mode === "camera") return `camera:${mode.entityId}`;
+  if (mode.mode === "media-artwork") return `media-artwork:${mode.entityId}`;
+  return mode.mode;
 }
 
 export function syncCardBackgroundSection(
@@ -835,7 +847,9 @@ export function syncCardBackgroundSection(
       btn.className = "area-card-bg-option";
       btn.dataset.bgKey = key;
       btn.dataset.bgMode = choice.mode.mode;
-      if (choice.mode.mode === "camera") btn.dataset.bgEntity = choice.mode.entityId;
+      if (choice.mode.mode === "camera" || choice.mode.mode === "media-artwork") {
+        btn.dataset.bgEntity = choice.mode.entityId;
+      }
       btn.addEventListener("click", (event) => {
         event.stopPropagation();
         if (btn?.bgChoice) btn.onBgSelect?.(btn.bgChoice);
