@@ -43,6 +43,7 @@ import {
 import { syncCardThemeFallback } from "./theme";
 import "./floor-card";
 import "./floors-card";
+import "./adaptive-lighting";
 import "./camera-row";
 import "./device-row";
 import "./light-row";

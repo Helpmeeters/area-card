@@ -1,3 +1,4 @@
+import { adaptiveLightingCardConfig } from "./adaptive-lighting";
 import { CAMERA_ROW_TAG } from "./camera-detections";
 import { formatDeviceSensors, sensorLabel } from "./device-row";
 import { mergeEntityOrder, type AreaEntityOrder } from "./entity-order";
@@ -172,8 +173,8 @@ function sectionBody(
           entity,
         ),
       );
-    case "lights":
-      return sections.lights.map((entity) => {
+    case "lights": {
+      const cards = sections.lights.map((entity) => {
         const absorbed = sections.deviceSensors?.[entity];
         const card = lightCard(entity, states[entity], states, roomName, rows, Boolean(sections.lightLeds[entity]), absorbed);
         const wrapped = lightExposesControls(states[entity])
@@ -181,6 +182,11 @@ function sectionBody(
           : card;
         return withLedDot(wrapped, sections.lightLeds[entity]);
       });
+      for (const group of sections.adaptiveLighting ?? []) {
+        cards.push(adaptiveLightingCardConfig(group, roomName));
+      }
+      return cards;
+    }
     case "media":
       return sections.mediaPlayers.map((entity) =>
         withDeviceSensors(

@@ -105,6 +105,17 @@ export interface CameraDetection {
   classes: CameraDetectionClass[];
 }
 
+/** One Adaptive Lighting instance (main switch + companion toggles). */
+export interface AdaptiveLightingGroup {
+  id: string;
+  name: string;
+  mainEntityId?: string;
+  adaptColorEntityId?: string;
+  adaptBrightnessEntityId?: string;
+  sleepModeEntityId?: string;
+  extraEntityIds?: string[];
+}
+
 export interface AreaSections {
   climate: string[];
   lights: string[];
@@ -115,6 +126,8 @@ export interface AreaSections {
   cameras: string[];
   cameraDetections?: Record<string, CameraDetection>;
   switches: string[];
+  /** Adaptive Lighting switch groups swept out of `switches` (shown under Lights). */
+  adaptiveLighting?: AdaptiveLightingGroup[];
   occupancy: OccupancyItem[];
   openings: string[];
   satellites: SatelliteItem[];
@@ -375,6 +388,7 @@ export function classifyArea(hass: ClassifierHass, areaId: string): AreaSections
 
     if (domain === "switch") {
       if (suppressed) continue;
+      if (isAdaptiveLightingSwitch(entry)) continue;
       sections.switches.push(id);
       continue;
     }
@@ -427,6 +441,8 @@ export function classifyArea(hass: ClassifierHass, areaId: string): AreaSections
   appendSatelliteMediaPlayers(sections, allEntries, devices, states);
   dropPlayersShownOnKioskCard(sections, allEntries, states);
   collectSingleDeviceSensorTargets(sections, entries);
+  const adaptiveLighting = collectAdaptiveLightingGroups(entries, allEntries, devices, states);
+  if (adaptiveLighting.length > 0) sections.adaptiveLighting = adaptiveLighting;
 
   sections.climate = sortIds(sections.climate, states);
   sections.lights = sortIds(sections.lights, states);
@@ -457,6 +473,19 @@ export function membershipKey(areaId: string, name: string, icon: string, sectio
     .map((item) => `${item.entityId}=${item.ledEntityId ?? ""}=${item.alarmEntityId ?? ""}=${item.deviceId ?? ""}`)
     .join(",");
   const leds = sections.lights.map((id) => `${id}=${sections.lightLeds[id] ?? ""}`).join(",");
+  const adaptiveLighting = (sections.adaptiveLighting ?? [])
+    .map((group) =>
+      [
+        group.id,
+        group.name,
+        group.mainEntityId ?? "",
+        group.adaptColorEntityId ?? "",
+        group.adaptBrightnessEntityId ?? "",
+        group.sleepModeEntityId ?? "",
+        (group.extraEntityIds ?? []).join(","),
+      ].join("="),
+    )
+    .join(";");
   const sensorDevs = sections.sensors
     .map((id) => {
       const dev = sections.sensorDevices?.[id];
@@ -488,6 +517,7 @@ export function membershipKey(areaId: string, name: string, icon: string, sectio
     sections.climate.join(","),
     sections.lights.join(","),
     leds,
+    adaptiveLighting,
     sections.mediaPlayers.join(","),
     sections.cameras.join(","),
     camDetections,
@@ -507,6 +537,102 @@ export function membershipKey(areaId: string, name: string, icon: string, sectio
     sections.scenes.join(","),
     sections.scripts.join(","),
   ].join("|");
+}
+
+const ADAPTIVE_LIGHTING_SUFFIXES = ["_sleep_mode", "_adapt_color", "_adapt_brightness"] as const;
+
+export function isAdaptiveLightingSwitch(entry: RegistryEntry): boolean {
+  if (!entry.entity_id.startsWith("switch.")) return false;
+  if (entry.platform === "adaptive_lighting") return true;
+  return entry.entity_id.startsWith("switch.adaptive_lighting_");
+}
+
+type AdaptiveLightingRole = "main" | "adaptColor" | "adaptBrightness" | "sleepMode" | "extra";
+
+function adaptiveLightingRole(entry: RegistryEntry): AdaptiveLightingRole {
+  const unique = typeof entry.unique_id === "string" ? entry.unique_id : "";
+  const id = entry.entity_id;
+  if (unique.endsWith("_sleep_mode") || id.endsWith("_sleep_mode")) return "sleepMode";
+  if (unique.endsWith("_adapt_color") || id.endsWith("_adapt_color")) return "adaptColor";
+  if (unique.endsWith("_adapt_brightness") || id.endsWith("_adapt_brightness")) return "adaptBrightness";
+  return "main";
+}
+
+function adaptiveLightingGroupKey(entry: RegistryEntry): string {
+  if (entry.device_id) return entry.device_id;
+  let base = entry.entity_id;
+  for (const suffix of ADAPTIVE_LIGHTING_SUFFIXES) {
+    if (base.endsWith(suffix)) {
+      base = base.slice(0, -suffix.length);
+      break;
+    }
+  }
+  return base;
+}
+
+function adaptiveLightingDisplayName(
+  device: DeviceEntry | undefined,
+  mainState: EntityState | undefined,
+  groupKey: string,
+): string {
+  const raw =
+    (typeof device?.name_by_user === "string" && device.name_by_user.trim()) ||
+    (typeof device?.name === "string" && device.name.trim()) ||
+    (typeof mainState?.attributes?.friendly_name === "string" && mainState.attributes.friendly_name.trim()) ||
+    groupKey;
+  const stripped = raw.replace(/^Adaptive Lighting:\s*/i, "").trim();
+  return stripped || "Adaptive Lighting";
+}
+
+function collectAdaptiveLightingGroups(
+  areaEntries: readonly RegistryEntry[],
+  allEntries: readonly RegistryEntry[],
+  devices: Record<string, DeviceEntry>,
+  states: Record<string, EntityState>,
+): AdaptiveLightingGroup[] {
+  const areaKeys = new Set<string>();
+  for (const entry of areaEntries) {
+    if (isHidden(entry) || isDiagnosticOrConfig(entry)) continue;
+    if (!isAdaptiveLightingSwitch(entry)) continue;
+    if (!states[entry.entity_id]) continue;
+    areaKeys.add(adaptiveLightingGroupKey(entry));
+  }
+  if (areaKeys.size === 0) return [];
+
+  const byKey = new Map<string, RegistryEntry[]>();
+  for (const entry of allEntries) {
+    if (isHidden(entry) || isDiagnosticOrConfig(entry)) continue;
+    if (!isAdaptiveLightingSwitch(entry)) continue;
+    if (!states[entry.entity_id]) continue;
+    const key = adaptiveLightingGroupKey(entry);
+    if (!areaKeys.has(key)) continue;
+    const list = byKey.get(key);
+    if (list) list.push(entry);
+    else byKey.set(key, [entry]);
+  }
+
+  const groups: AdaptiveLightingGroup[] = [];
+  for (const [key, members] of byKey) {
+    const group: AdaptiveLightingGroup = { id: key, name: "" };
+    const extras: string[] = [];
+    for (const entry of members) {
+      const role = adaptiveLightingRole(entry);
+      if (role === "main" && !group.mainEntityId) group.mainEntityId = entry.entity_id;
+      else if (role === "adaptColor" && !group.adaptColorEntityId) group.adaptColorEntityId = entry.entity_id;
+      else if (role === "adaptBrightness" && !group.adaptBrightnessEntityId) {
+        group.adaptBrightnessEntityId = entry.entity_id;
+      } else if (role === "sleepMode" && !group.sleepModeEntityId) group.sleepModeEntityId = entry.entity_id;
+      else extras.push(entry.entity_id);
+    }
+    if (extras.length > 0) group.extraEntityIds = sortIds(extras, states);
+    const device = members.find((entry) => entry.device_id)?.device_id
+      ? devices[members.find((entry) => entry.device_id)!.device_id!]
+      : undefined;
+    group.name = adaptiveLightingDisplayName(device, group.mainEntityId ? states[group.mainEntityId] : undefined, key);
+    groups.push(group);
+  }
+
+  return groups.sort((a, b) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id));
 }
 
 function collectSingleDeviceSensorTargets(

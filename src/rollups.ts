@@ -300,7 +300,8 @@ export function parseHideSections(value: unknown): RollupId[] {
 export function sectionHasEntities(id: RollupId, sections: AreaSections): boolean {
   switch (id) {
     case "climate": return sections.climate.length > 0;
-    case "lights": return sections.lights.length > 0;
+    case "lights":
+      return sections.lights.length > 0 || (sections.adaptiveLighting?.length ?? 0) > 0;
     case "media": return sections.mediaPlayers.length > 0;
     case "cameras": return sections.cameras.length > 0;
     case "switches": return sections.switches.length > 0;
@@ -348,7 +349,12 @@ export function withoutSections(sections: AreaSections, hide: readonly RollupId[
   for (const id of hide) {
     switch (id) {
       case "climate": dropDeviceSensors(result.climate); result.climate = []; break;
-      case "lights": dropDeviceSensors(result.lights); result.lights = []; result.lightLeds = {}; break;
+      case "lights":
+        dropDeviceSensors(result.lights);
+        result.lights = [];
+        result.lightLeds = {};
+        result.adaptiveLighting = undefined;
+        break;
       case "media": dropDeviceSensors(result.mediaPlayers); result.mediaPlayers = []; break;
       case "cameras": dropDeviceSensors(result.cameras); result.cameras = []; result.cameraDetections = undefined; break;
       case "switches": dropDeviceSensors(result.switches); result.switches = []; break;
