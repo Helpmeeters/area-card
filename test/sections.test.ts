@@ -309,6 +309,53 @@ describe("classifyArea", () => {
     assert.deepEqual(result.selects, ["input_select.scene"]);
   });
 
+  it("files template binary sensors by Show as Occupancy or Opening instead of Helpers", () => {
+    const result = classifyArea(
+      hass({
+        entities: [
+          {
+            entity_id: "binary_sensor.man_cave_doors_are_correct",
+            area_id: "office_of_drew",
+            platform: "template",
+            device_class: "occupancy",
+          },
+          {
+            entity_id: "binary_sensor.template_door",
+            area_id: "office_of_drew",
+            platform: "template",
+            device_class: "door",
+          },
+          {
+            entity_id: "binary_sensor.template_flag",
+            area_id: "office_of_drew",
+            platform: "template",
+          },
+        ],
+        states: {
+          "binary_sensor.man_cave_doors_are_correct": state(
+            "binary_sensor.man_cave_doors_are_correct",
+            "on",
+            { friendly_name: "Man Cave Doors are Correct", device_class: "occupancy" },
+          ),
+          "binary_sensor.template_door": state("binary_sensor.template_door", "off", {
+            friendly_name: "Template Door",
+            device_class: "door",
+          }),
+          "binary_sensor.template_flag": state("binary_sensor.template_flag", "off", {
+            friendly_name: "Template Flag",
+          }),
+        },
+      }),
+      "office_of_drew",
+    );
+    assert.deepEqual(
+      result.occupancy.map((item) => item.entityId),
+      ["binary_sensor.man_cave_doors_are_correct"],
+    );
+    assert.deepEqual(result.openings, ["binary_sensor.template_door"]);
+    assert.deepEqual(result.helpers, ["binary_sensor.template_flag"]);
+  });
+
   it("includes an automation assigned to the area or its device", () => {
     const result = classifyArea(
       hass({
@@ -616,8 +663,42 @@ describe("popup and button configs", () => {
     assert.equal(dimmable?.show_brightness_control, true);
     assert.equal(dimmable?.show_color_temp_control, true);
     assert.equal(dimmable?.show_color_control, true);
-    assert.equal(dimmable?.icon_tap_action, undefined);
-    assert.equal(dimmable?.tap_action, undefined);
+    assert.deepEqual(dimmable?.tap_action, { action: "more-info" });
+    assert.deepEqual(dimmable?.hold_action, { action: "more-info" });
+    assert.deepEqual(dimmable?.icon_tap_action, { action: "toggle" });
+    assert.deepEqual(dimmable?.icon_hold_action, { action: "more-info" });
+  });
+
+  it("opens more-info from the row and toggles from the icon on switches, covers, thermostats, and humidifiers", () => {
+    const cards = buildPopupCards(
+      {
+        ...emptySections(),
+        switches: ["switch.fan"],
+        openings: ["cover.blinds", "binary_sensor.door"],
+        climate: ["climate.thermostat", "humidifier.mist", "sensor.temp"],
+      },
+      {
+        "switch.fan": state("switch.fan", "off", { friendly_name: "Fan" }),
+        "cover.blinds": state("cover.blinds", "closed", { friendly_name: "Blinds" }),
+        "binary_sensor.door": state("binary_sensor.door", "off", { friendly_name: "Door" }),
+        "climate.thermostat": state("climate.thermostat", "heat", { friendly_name: "Thermostat" }),
+        "humidifier.mist": state("humidifier.mist", "on", { friendly_name: "Humidifier" }),
+        "sensor.temp": state("sensor.temp", "70", { friendly_name: "Temp", unit_of_measurement: "°F" }),
+      },
+    );
+    for (const entity of ["switch.fan", "cover.blinds", "climate.thermostat", "humidifier.mist"]) {
+      const card = cards.find((c) => c.entity === entity);
+      assert.deepEqual(card?.tap_action, { action: "more-info" }, entity);
+      assert.deepEqual(card?.hold_action, { action: "more-info" }, entity);
+      assert.deepEqual(card?.double_tap_action, { action: "none" }, entity);
+      assert.deepEqual(card?.icon_tap_action, { action: "toggle" }, entity);
+      assert.deepEqual(card?.icon_hold_action, { action: "more-info" }, entity);
+      assert.deepEqual(card?.icon_double_tap_action, { action: "none" }, entity);
+    }
+    const door = cards.find((c) => c.entity === "binary_sensor.door");
+    assert.equal(door?.icon_tap_action, undefined);
+    const temp = cards.find((c) => c.entity === "sensor.temp");
+    assert.equal(temp?.icon_tap_action, undefined);
   });
 
   it("toggles an input_boolean from the icon and opens more-info from the row", () => {
@@ -2498,18 +2579,24 @@ describe("floor-wide section hiding", () => {
     const sections1 = { ...emptySections(), lights: ["light.a"], climate: ["sensor.temp"] };
     const sections2 = { ...emptySections(), openings: ["binary_sensor.door"], selects: ["input_select.s"] };
     const all = [sections1, sections2];
-    const hide = ROLLUP_ORDER.filter((id) => all.every((s) => !sectionHasEntities(id, s)));
+    const creatable = new Set(["scenes", "scripts", "helpers", "automations"]);
+    const hide = ROLLUP_ORDER.filter(
+      (id) => !creatable.has(id) && all.every((s) => !sectionHasEntities(id, s)),
+    );
     // lights, openings, climate, helpers(selects) all have at least one area → not hidden
     assert.ok(!hide.includes("lights"), "lights present in area1");
     assert.ok(!hide.includes("openings"), "openings present in area2");
     assert.ok(!hide.includes("climate"), "climate present in area1 (temp sensor counts)");
     assert.ok(!hide.includes("helpers"), "helpers present in area2 (selects count)");
-    // media, switches, occupancy, satellites, automations absent everywhere → hidden
+    // media, switches, occupancy, satellites absent everywhere → hidden
     assert.ok(hide.includes("media"));
     assert.ok(hide.includes("switches"));
     assert.ok(hide.includes("occupancy"));
     assert.ok(hide.includes("satellites"));
-    assert.ok(hide.includes("automations"));
+    // Creatable sections stay out of floor-wide hide so Add chips still appear.
+    assert.ok(!hide.includes("automations"));
+    assert.ok(!hide.includes("scenes"));
+    assert.ok(!hide.includes("scripts"));
   });
 
   it("hides all sections when areas list is empty (guarded by floor card)", () => {

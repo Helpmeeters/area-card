@@ -6,13 +6,22 @@ import { lightTintBackgroundStyles, type RgbColor } from "./light-tint";
 import { stripRoomName } from "./names";
 import { pictureBackgroundStyles } from "./picture";
 import { popupChromeStyles } from "./popup-chrome";
-import { readViewportWidth, rowColumns, type LineMeasure } from "./row-width";
+import { readViewportWidth, rowColumns, type HalfRowOptions, type LineMeasure } from "./row-width";
 import { rollupLabel, sectionColor, sectionIcon, sectionRollups, sectionTitle, type RollupId } from "./rollups";
 import type { AreaSections, EntityState, SatelliteItem } from "./sections";
 import { areaHash, BUBBLE_CARD_TYPE, mushroomCardType } from "./tags";
 
 const FULL = { columns: 12 };
 const UNAVAILABLE = "Unavailable";
+/** Icon tap toggles the entity; tapping the title or rest of the row opens more-info. */
+const TOGGLE_ON_ICON_ACTIONS = {
+  tap_action: { action: "more-info" },
+  hold_action: { action: "more-info" },
+  double_tap_action: { action: "none" },
+  icon_tap_action: { action: "toggle" },
+  icon_hold_action: { action: "more-info" },
+  icon_double_tap_action: { action: "none" },
+} as const;
 
 export interface PopupLayout {
   viewportWidth?: number;
@@ -207,10 +216,7 @@ function sectionBody(
     case "switches":
       return sections.switches.map((entity) =>
         withDeviceSensors(
-          entityCard(entity, states, roomName, rows, {
-            tap_action: { action: "toggle" },
-            hold_action: { action: "more-info" },
-          }, sections.deviceSensors?.[entity]),
+          entityCard(entity, states, roomName, rows, { ...TOGGLE_ON_ICON_ACTIONS }, sections.deviceSensors?.[entity]),
           sections.deviceSensors?.[entity],
           states,
           roomName,
@@ -233,6 +239,7 @@ function sectionBody(
                 entity,
                 show_position_control: true,
                 show_buttons_control: true,
+                ...TOGGLE_ON_ICON_ACTIONS,
                 grid_options: gridFor(
                   rows,
                   entityTitle(entity, states, roomName),
@@ -342,6 +349,7 @@ function lightCard(
         show_color_temp_control: true,
         show_color_control: true,
         collapsible_controls: true,
+        ...TOGGLE_ON_ICON_ACTIONS,
         grid_options: gridFor(
           layout,
           title,
@@ -504,6 +512,7 @@ function titleCard(id: RollupId | "status"): Record<string, unknown> {
     : { title: sectionTitle(id), icon: sectionIcon(id), color: sectionColor(id) };
   return {
     type: SECTION_TITLE,
+    section: id,
     title: heading.title,
     icon: heading.icon,
     color: heading.color,
@@ -612,6 +621,7 @@ function climateCard(
       {
         type: mushroomCardType("climate-card"),
         entity,
+        ...TOGGLE_ON_ICON_ACTIONS,
         grid_options: FULL,
       },
       entity,
@@ -625,6 +635,7 @@ function climateCard(
         type: mushroomCardType("humidifier-card"),
         entity,
         show_target_humidity_control: true,
+        ...TOGGLE_ON_ICON_ACTIONS,
         grid_options: FULL,
       },
       entity,
@@ -824,10 +835,11 @@ function automationCard(
   disabled = false,
 ): Record<string, unknown> {
   const literal = layout.literalState;
+  const title = entityTitle(entity, states, roomName);
   return {
     type: mushroomCardType("template-card"),
     entity,
-    primary: entityTitle(entity, states, roomName),
+    primary: title,
     secondary: disabled
       ? "Disabled"
       : literal
@@ -848,7 +860,7 @@ function automationCard(
       target: { entity_id: entity },
     },
     double_tap_action: { action: "none" },
-    grid_options: gridFor(layout, entityTitle(entity, states, roomName), [disabled ? "Disabled" : "Never triggered"]),
+    grid_options: gridFor(layout, title, [disabled ? "Disabled" : "Never triggered"]),
   };
 }
 
@@ -964,9 +976,10 @@ function gridFor(
   layout: RowLayout,
   primary: string,
   secondaries: readonly string[],
-  led = false,
+  ledOrOptions: boolean | Pick<HalfRowOptions, "led" | "rightReserve"> = false,
 ): { columns: number } {
-  return rowColumns(primary, secondaries, layout.viewportWidth, { led, measure: layout.measure });
+  const options = typeof ledOrOptions === "boolean" ? { led: ledOrOptions } : ledOrOptions;
+  return rowColumns(primary, secondaries, layout.viewportWidth, { ...options, measure: layout.measure });
 }
 
 function entitySecondaries(state: EntityState | undefined, layout: RowLayout): string[] {

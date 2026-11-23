@@ -5,6 +5,8 @@ export interface RegistryEntry {
   entity_id: string;
   /** Entity registry id. Device triggers store this, not the entity_id. */
   id?: string;
+  /** Platform unique id (used for script edit URLs). */
+  unique_id?: string | null;
   area_id?: string | null;
   device_id?: string | null;
   platform?: string | null;
@@ -51,9 +53,16 @@ export interface ClassifierHass {
   devices?: Record<string, DeviceEntry> | DeviceEntry[];
   areas?: Record<string, AreaEntry>;
   floors?: Record<string, FloorEntry>;
+  user?: { id?: string; is_admin?: boolean };
   hassUrl?: (path: string) => string;
   themes?: { darkMode?: boolean };
-  callWS?: (message: { type: string; entity_id?: string }) => Promise<unknown>;
+  callWS?: (message: { type: string; [key: string]: unknown }) => Promise<unknown>;
+  callApi?: <T = unknown>(
+    method: string,
+    path: string,
+    parameters?: Record<string, unknown>,
+  ) => Promise<T>;
+  fetchWithAuth?: (path: string, init?: RequestInit) => Promise<Response>;
   formatEntityState?: (stateObj: EntityState, state?: string) => string;
   callService?: (
     domain: string,
@@ -331,6 +340,23 @@ export function classifyArea(hass: ClassifierHass, areaId: string): AreaSections
     }
 
     if (entry.platform === "template") {
+      // Template binary sensors with Show as Occupancy / Opening follow those sections;
+      // other template entities stay under Helpers.
+      if (domain === "binary_sensor" && !suppressed && !absorbedOccupancy.has(id)) {
+        if (dc && OPENING_CLASSES.has(dc)) {
+          sections.openings.push(id);
+          continue;
+        }
+        if (isOccupancyBinary(entry, state, satelliteDevices)) {
+          sections.occupancy.push({
+            entityId: id,
+            pressureEntityId: entry.device_id
+              ? pressureByDevice.get(entry.device_id) ?? atmosphericByDevice.get(entry.device_id)
+              : undefined,
+          });
+          continue;
+        }
+      }
       sections.helpers.push(id);
       continue;
     }
@@ -850,7 +876,6 @@ function isOccupancyBinary(
   const id = entry.entity_id;
   if (!id.startsWith("binary_sensor.")) return false;
   if (isSatelliteRelated(entry, satelliteDevices)) return false;
-  if (entry.platform === "template") return false;
   if (isDiagnosticOrConfig(entry)) return false;
   const dc = deviceClass(entry, state);
   if (dc && OPENING_CLASSES.has(dc)) return false;

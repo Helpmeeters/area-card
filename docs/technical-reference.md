@@ -99,7 +99,7 @@ Separators:
 
 ## Popup Structure & Section Rules
 
-The button and the popup are the same card. Tapping the button or a visible dot opens `#area-<area_id>`. Empty sections stay out of the popup.
+The button and the popup are the same card. Tapping the button or a visible dot opens `#area-<area_id>`. Empty sections stay out of the popup, except empty creatable sections (`scenes`, `scripts`, `helpers`, `automations`), which collapse into a bottom **Add** chip row (see Section Create Actions).
 
 ### Status Section
 
@@ -111,8 +111,9 @@ The button and the popup are the same card. Tapping the button or a visible dot 
 
 Each popup section heading uses its section icon to the left of the title.
 
-- **Climate**: lists temperature and humidity sensors, thermostats, humidifiers, water heaters, and extra environment readings (illuminance, carbon dioxide, carbon monoxide, particulate matter, air quality, volatile organic compounds, moisture, and standalone pressure). Sensor rows and water heaters are entity cards; thermostats use the climate card; humidifiers use the humidifier card with target humidity control.
-- **Lights**: on/off lights toggle from the icon while the rest of the row opens more-info; dimmable lights keep the Mushroom light card. A `switch.*_led` on the same device renders as a dot on the right of that light and toggles only the LED.
+- **Climate**: lists temperature and humidity sensors, thermostats, humidifiers, water heaters, and extra environment readings (illuminance, carbon dioxide, carbon monoxide, particulate matter, air quality, volatile organic compounds, moisture, and standalone pressure). Sensor rows and water heaters are entity cards; thermostats use the climate card; humidifiers use the humidifier card with target humidity control. Thermostats and humidifiers toggle from the icon while the rest of the row opens more-info.
+- **Lights**: all lights (both on/off and dimmable/color/light-group rows) toggle from the icon while the rest of the row opens more-info; dimmable lights keep the Mushroom light card controls. A `switch.*_led` on the same device renders as a dot on the right of that light and toggles only the LED.
+- **Switches & Covers**: switches and `cover.*` openings toggle from the icon while the rest of the row opens more-info.
 - **Media & Satellites**:
   - Entities belonging to a kiosk satellite stay on the one **Satellites** card.
   - When the installed Kiosk Satellite Card is loaded, a satellite with a device renders as `custom:kiosk-satellite-card` with `device` set to the satellite device (the old `kiosk-redisplay` name and locally served builds are left unused).
@@ -122,13 +123,42 @@ Each popup section heading uses its section icon to the left of the title.
 - **Buttons, Scenes, Scripts**: follow Vacuums, before Helpers. Tapping a button or input button presses it (holding opens more-info). Tapping a scene or script turns it on.
 - **Helpers & Automations**:
   - `input_boolean` helpers toggle from the icon while the rest of the row opens more-info.
+  - Template entities normally stay under **Helpers**, except a template `binary_sensor` whose **Show as** / `device_class` is occupancy (or motion/presence) goes under **Occupancy**, and opening/door/window/garage/etc. goes under **Entries**.
   - Automations assigned to the area, and automations whose name contains the room name, are listed under **Automations**.
   - An automation is **Disabled** when every trigger depends on an unavailable device (time, sun, or other triggers that can still fire keep it enabled). Disabled automations stay in the list, show `Disabled`, and do not count as on.
+- **Edit pencils** (admin users, non-demo, normal view only — hidden while the popup is in UI edit mode):
+  - Manually created entities show a right-floated pencil that appears on row hover (always visible on touch devices without hover).
+  - Automations with a UI editor id, scripts, and scenes with a UI editor id open their full HA editor page (`/config/automation/edit/<id>`, `/config/script/edit/<id>`, `/config/scene/edit/<id>`).
+  - UI helpers and other manually created virtual entities without a `device_id` (groups, templates, thresholds, `input_*`, timers, etc.) open the entity **Settings** dialog via `hass-more-info` with `view: "settings"` (there is no dedicated Settings URL).
+  - Device-backed entities and YAML-only automations/scenes without an id omit the pencil.
+
+### Section Create Actions
+
+For admin users in non-demo mode (and while the popup is not in edit mode), creatable sections expose Home Assistant create flows:
+
+- **Creatable sections**: `scenes`, `scripts`, `helpers`, and `automations`.
+- **Non-empty creatable sections**: a right-floated circled plus (`mdi:plus-circle-outline`) on the section heading opens that section's create page or dialog.
+- **Empty creatable sections**: instead of empty headings, those sections collapse into one wrapping bottom row of **Add** chips (`Scene`, `Script`, `Helper`, `Automation`), so several empty sections still share a single row.
+- Sections listed in the card's `hide_sections` are omitted from both heading buttons and bottom chips. Floor-wide hiding does not include creatable sections, so empty Scene / Script / Helper / Automation Add chips still appear on every area of the floor.
+- Navigation targets:
+  - Scenes → `/config/scene/edit/new`
+  - Scripts → `/config/script/edit/new`
+  - Helpers → `/config/helpers?historyBack=1&area=<area_id>` (opens the helper create dialog)
+  - Automations → `/config/automation/edit/new`
+- After navigation, the card best-effort prepopulates the Area on the editor/dialog when Home Assistant's current frontend internals allow it; if those internals change, the action still lands on the standard create flow.
+
+### Helper Group Suggestions
+
+- For admin users in non-demo mode, sections that map cleanly to a Home Assistant Group helper surface **`Create group`** and **`Ignore`** actions in the section title whenever at least two non-group entities of the same target domain are not yet members of a related area helper group:
+  - **Lights** (`light` group), **Occupancy** (`binary_sensor` group with `device_class: occupancy`), **Switches** (`switch` group), **Entries** (`binary_sensor` group with common opening `device_class` or `cover` group), **Media players** (`media_player` group), and **Locks** (`lock` group).
+- Clicking **`Create group`** opens an inline name / `Hide members` / **Save** / **Cancel** bar under the section heading and places a checkbox next to each compatible entity in that section, pre-checking the suggested ungrouped items.
+- Saving creates the Home Assistant `group` helper via the config entry flow and assigns the resulting entity to the area (plus `device_class` for Occupancy / Entries binary sensor groups).
+- Clicking **`Ignore`** persists a per-area, per-user fingerprint of the section's entities and related helper groups (`area-card-group-ignore:<area_id>`) so the suggestion stays hidden until the section's entities or related helper groups/memberships change.
 
 ### Row Width & Room-Name Stripping
 
 - Entity titles in the popup (including camera titles) drop a leading room name.
-- A row sits at half width when its title and longest state line both fit beside the icon, so two rows (such as two lights) can share a line. A light's LED dot counts against that fit.
+- A row sits at half width when its title and longest state line both fit beside the icon, so two rows (such as two lights) can share a line. A light's LED dot counts against that fit. Edit pencils overlay on hover and do not change half-row width.
 - Status chips, section headings, media players, Kiosk Satellite Cards, cameras, locks, and vacuums stay full width.
 - The popup header and collapsed button keep the full room name.
 
@@ -168,7 +198,7 @@ Each popup section heading uses its section icon to the left of the title.
   - **Sort by presence**: toggle (default `On`) to order areas by current occupancy first, then most recent presence/last-seen, falling back to alphabetical order (`Off` sorts alphabetically).
 - Header dots sit left of the collapse control and use the same slots as Area Cards (no `climate`, `occupancy`, `buttons`, `scenes`, `scripts`, `helpers`, or `automations` column). A dot is filled if any area on the floor has that section active, hollow if present anywhere on the floor, and invisible otherwise. Tooltips show aggregated counts (e.g., `Lights 3/12 On`).
 - Area cards on the floor shift their dots left by the width of the collapse control so columns align. On narrow headers, the floor name stays whole and dots leave from the left so remaining columns still align.
-- **Floor-wide section hiding**: sections absent on every area of the floor are hidden across all area cards on that floor so dot rows stay compact and aligned. Sections present on even one area stay visible on every area card of that floor.
+- **Floor-wide section hiding**: sections absent on every area of the floor are hidden across all area cards on that floor so dot rows stay compact and aligned. Sections present on even one area stay visible on every area card of that floor. Creatable sections (`scenes`, `scripts`, `helpers`, `automations`) are not floor-hidden — they stay available for section create actions (heading `+` / bottom Add chips) even when every area on the floor currently has none.
 
 ### Floors Card (`custom:floors-card`)
 

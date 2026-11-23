@@ -3,6 +3,7 @@ interface SectionTitleConfig {
   icon?: string;
   color?: string;
   variant?: "section" | "group";
+  section?: string;
 }
 
 /** Popup section heading: the section icon, then the title in Mushroom's title type. */
@@ -23,6 +24,8 @@ class AreaCardSectionTitle extends HTMLElement {
 
   setConfig(config: SectionTitleConfig): void {
     this.config = config;
+    if (config.section) this.dataset.section = config.section;
+    else delete this.dataset.section;
     this.render();
   }
 
@@ -35,11 +38,15 @@ class AreaCardSectionTitle extends HTMLElement {
   private render(): void {
     const config = this.config;
     if (!config) return;
+    if (config.section) this.dataset.section = config.section;
+    else delete this.dataset.section;
     const isGroup = config.variant === "group";
     const row = document.createElement("div");
+    row.className = "area-card-section-title-row";
     row.style.cssText = [
       "display:flex",
       "align-items:center",
+      "flex-wrap:wrap",
       "gap:8px",
       isGroup ? "padding:12px 12px 4px" : "padding:var(--mush-title-padding, 24px 12px 8px)",
       "background:none",

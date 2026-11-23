@@ -33,6 +33,15 @@ import {
   parseFloorSortByPresence,
 } from "./floor-state";
 import {
+  GROUP_IGNORE_KEY_PREFIX,
+  cloneGroupIgnores,
+  groupIgnoreKey,
+  groupIgnoresEqual,
+  parseGroupIgnores,
+  serializeGroupIgnores,
+  type AreaGroupIgnores,
+} from "./group-suggestions";
+import {
   PINNED_KEY_PREFIX,
   legacyBackgroundCamera,
   parseAreaPins,
@@ -68,7 +77,8 @@ type CacheEntry =
   | { kind: "floorSortByPresence"; enabled: boolean }
   | { kind: "battery"; mode: BatteryMode }
   | { kind: "order"; order: AreaEntityOrder }
-  | { kind: "background"; bg: AreaBackgroundMode };
+  | { kind: "background"; bg: AreaBackgroundMode }
+  | { kind: "groupIgnore"; ignores: AreaGroupIgnores };
 
 interface WriteChain {
   count: number;
@@ -126,6 +136,10 @@ function isBackgroundKey(key: string): boolean {
   return key.startsWith(BACKGROUND_MODE_KEY_PREFIX);
 }
 
+function isGroupIgnoreKey(key: string): boolean {
+  return key.startsWith(GROUP_IGNORE_KEY_PREFIX);
+}
+
 function isAreaCardKey(key: string): boolean {
   return (
     isPinKey(key) ||
@@ -134,7 +148,8 @@ function isAreaCardKey(key: string): boolean {
     isFloorSortByPresenceKey(key) ||
     isBatteryKey(key) ||
     isOrderKey(key) ||
-    isBackgroundKey(key)
+    isBackgroundKey(key) ||
+    isGroupIgnoreKey(key)
   );
 }
 
@@ -207,6 +222,7 @@ function departsFromDefault(entry: CacheEntry): boolean {
   if (entry.kind === "battery") return entry.mode !== "off";
   if (entry.kind === "order") return Object.keys(entry.order).length > 0;
   if (entry.kind === "background") return entry.bg.mode !== "light-tint";
+  if (entry.kind === "groupIgnore") return Object.keys(entry.ignores).length > 0;
   return (
     entry.pins.always.length > 0 ||
     entry.pins.whenOn.length > 0 ||
@@ -278,6 +294,15 @@ function commitBackground(key: string, bg: AreaBackgroundMode): void {
   if (!areaBackgroundEqual(previous, next)) notify(key);
 }
 
+function commitGroupIgnore(key: string, ignores: AreaGroupIgnores): void {
+  const next = cloneGroupIgnores(ignores);
+  const prev = cache.get(key);
+  if (prev?.kind === "groupIgnore" && groupIgnoresEqual(prev.ignores, next)) return;
+  const previous: AreaGroupIgnores = prev?.kind === "groupIgnore" ? prev.ignores : {};
+  cache.set(key, { kind: "groupIgnore", ignores: next });
+  if (!groupIgnoresEqual(previous, next)) notify(key);
+}
+
 function commitSent(key: string, value: unknown): void {
   if (isPinKey(key)) commitPins(key, parseAreaPins(value));
   else if (isFloorKey(key)) commitFloor(key, floorBoolean(value));
@@ -286,6 +311,7 @@ function commitSent(key: string, value: unknown): void {
   else if (isBatteryKey(key)) commitBattery(key, parseBatteryMode(value));
   else if (isOrderKey(key)) commitOrder(key, parseEntityOrder(value));
   else if (isBackgroundKey(key)) commitBackground(key, parseAreaBackground(value));
+  else if (isGroupIgnoreKey(key)) commitGroupIgnore(key, parseGroupIgnores(value));
 }
 
 function forget(key: string): void {
@@ -317,6 +343,7 @@ function applyDocument(doc: Record<string, unknown>, gen: number, migrateLegacyB
     else if (isBatteryKey(key)) commitBattery(key, parseBatteryMode(raw));
     else if (isOrderKey(key)) commitOrder(key, parseEntityOrder(raw));
     else if (isBackgroundKey(key)) commitBackground(key, parseAreaBackground(raw));
+    else if (isGroupIgnoreKey(key)) commitGroupIgnore(key, parseGroupIgnores(raw));
     else commitFloor(key, floorBoolean(raw));
   }
   if (gen !== generation) return;
@@ -720,7 +747,21 @@ export function saveAreaBackground(
   return setValue(hassApi(hass), backgroundModeKey(areaId), serializeAreaBackground(bg));
 }
 
-export { backgroundModeKey, entityOrderKey };
+export function cachedGroupIgnores(areaId: string): AreaGroupIgnores {
+  const entry = cache.get(groupIgnoreKey(areaId));
+  if (!entry || entry.kind !== "groupIgnore") return {};
+  return cloneGroupIgnores(entry.ignores);
+}
+
+export function saveAreaGroupIgnores(
+  hass: ClassifierHass,
+  areaId: string,
+  ignores: AreaGroupIgnores,
+): Promise<void> {
+  return setValue(hassApi(hass), groupIgnoreKey(areaId), serializeGroupIgnores(ignores));
+}
+
+export { backgroundModeKey, entityOrderKey, groupIgnoreKey };
 
 export function subscribeUserData(listener: (key: string) => void): () => void {
   listeners.add(listener);

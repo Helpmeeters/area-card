@@ -163,4 +163,19 @@ describe("popup row width", () => {
     assert.equal(columns(cards, live), 12);
     assert.equal(columns(cards, dead), 6);
   });
+
+  it("keeps editable automations half-width because edit pencils overlay on hover", () => {
+    const title = "Motion Bedtime Cue";
+    const editable = "automation.editable";
+    const cards = buildPopupCards(
+      { ...emptySections(), automations: [editable] },
+      {
+        [editable]: state(editable, "on", { friendly_name: title, id: "uid-1" }),
+      },
+      "Room",
+      new Set(),
+      layout(1200),
+    );
+    assert.equal(columns(cards, editable), 6);
+  });
 });

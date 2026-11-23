@@ -1,4 +1,5 @@
 import { CAMERA_ROW_TAG } from "./camera-detections";
+import { syncEntityEditControls } from "./automation-edit";
 import { syncAutomationSubtitle } from "./automation-subtitle";
 import { areaBackgroundEqual, type AreaBackgroundMode } from "./background-mode";
 import { createBatteryButton, syncBatteryButton, syncBatteryReadouts } from "./battery-ui";
@@ -93,10 +94,21 @@ import {
   pinnedPictureSurfaceStyles,
   type CameraPictureLoad,
 } from "./picture";
+import {
+  computeGroupSuggestions,
+  createHelperGroup,
+  loadRelatedGroupMemberships,
+  setGroupIgnore,
+  type AreaGroupIgnores,
+  type GroupSuggestion,
+  type OptimisticGroupRecord,
+} from "./group-suggestions";
+import { syncGroupSuggestions, type GroupSelectionSession } from "./group-ui";
 import { syncAreaEditButton, syncCloseButtonTooltip, syncPinEditButton } from "./header-tooltips";
 import { areaSettingsPath, ensureHeaderButtons } from "./popup-chrome";
+import { emptyCreatableSections, syncSectionAddActions } from "./section-add";
 import { withoutSections, type RollupId, type SectionRollup } from "./rollups";
-import { areaMediaPlayers, areaUnavailable, membershipKey, type ClassifierHass } from "./sections";
+import { areaMediaPlayers, areaUnavailable, membershipKey, type AreaSections, type ClassifierHass } from "./sections";
 import { BUBBLE_ELEMENT } from "./tags";
 import {
   backgroundModeKey,
@@ -104,11 +116,14 @@ import {
   cachedAreaBackground,
   cachedBatteryMode,
   cachedEntityOrder,
+  cachedGroupIgnores,
   cachedPins,
   ensureUserData,
   entityOrderKey,
+  groupIgnoreKey,
   saveAreaBackground,
   saveAreaEntityOrder,
+  saveAreaGroupIgnores,
   saveAreaPins,
   saveBatteryMode,
   subscribeUserData,
@@ -371,6 +386,12 @@ class AreaCard extends HTMLElement {
   private videoPlayer?: CameraStreamPlayer;
   private pinnedRowsVisible = false;
   private popupCards: readonly Record<string, unknown>[] = [];
+  private visibleSections?: AreaSections;
+  private relatedGroupMemberships: ReadonlyMap<string, readonly string[]> = new Map();
+  private groupSession: GroupSelectionSession | null = null;
+  private optimisticGroups: Array<OptimisticGroupRecord & { expiresAt: number }> = [];
+  private pendingGroupIgnores = new Map<string, { ignores: AreaGroupIgnores; seq: number }>();
+  private pendingGroupIgnoreSeq = 0;
   private entityScopes = new Map<string, string>();
   private sensorChipTargets: Record<string, string> = {};
   private lastChipKey = "";
@@ -431,6 +452,27 @@ class AreaCard extends HTMLElement {
     return this.pendingEntityOrder.get(areaId)?.order ?? cachedEntityOrder(areaId);
   }
 
+  private effectiveGroupIgnores(areaId: string): AreaGroupIgnores {
+    return this.pendingGroupIgnores.get(areaId)?.ignores ?? cachedGroupIgnores(areaId);
+  }
+
+  private activeOptimisticGroups(hass: ClassifierHass, areaId: string): OptimisticGroupRecord[] {
+    const now = Date.now();
+    const entities = hass.entities;
+    const hasEntity = (id: string): boolean => {
+      if (hass.states?.[id]) return true;
+      if (!entities) return false;
+      if (Array.isArray(entities)) return entities.some((e) => e.entity_id === id);
+      return Boolean(entities[id]);
+    };
+    this.optimisticGroups = this.optimisticGroups.filter((item) => {
+      if (now > item.expiresAt) return false;
+      if (item.entityId && hasEntity(item.entityId)) return false;
+      return true;
+    });
+    return this.optimisticGroups.filter((item) => item.areaId === areaId);
+  }
+
   get hass(): ClassifierHass | undefined {
     return this._hass;
   }
@@ -484,6 +526,10 @@ class AreaCard extends HTMLElement {
         this.schedule();
         return;
       }
+      if (key === groupIgnoreKey(areaId)) {
+        this.applyAreaEdit();
+        return;
+      }
       if (key !== pinnedKey(areaId)) return;
       const chipKey = (cachedPins(areaId).chip ?? []).slice().sort().join(",");
       if (chipKey !== this.lastChipKey) {
@@ -512,6 +558,7 @@ class AreaCard extends HTMLElement {
     this.stopDotTooltipWatch();
     this.stopAreaEditWatch();
     this.pinEditing = false;
+    this.groupSession = null;
     hideAreaDotTooltip();
   }
 
@@ -546,10 +593,16 @@ class AreaCard extends HTMLElement {
     if (!same()) return;
     await ensureDeps();
     if (!same() || !this._config) return;
-    const disabled = demo
-      ? new Set<string>()
-      : await loadDisabledAutomations(hass, contentFor(this._config, hass).sections.automations);
+    const preContent = demo ? undefined : contentFor(this._config, hass);
+    const preVisible = preContent ? withoutSections(preContent.sections, this._config.hide_sections) : undefined;
+    const [disabled, groupMemberships] = demo
+      ? [new Set<string>(), new Map<string, readonly string[]>()]
+      : await Promise.all([
+          loadDisabledAutomations(hass, preContent!.sections.automations),
+          loadRelatedGroupMemberships(hass, preContent!.areaId, preVisible!),
+        ]);
     if (!same() || !this._config) return;
+    this.relatedGroupMemberships = groupMemberships;
     const latest = this._config;
     const seeded = contentFor(latest, hass);
     this.areaPhoto = demo ? null : seeded.picture;
@@ -585,6 +638,7 @@ class AreaCard extends HTMLElement {
     const { name, icon, sections } = view.content;
     this.roomName = name;
     const visibleSections = view.sections;
+    this.visibleSections = visibleSections;
     if (!demo) this.mediaPlayerOrder = areaMediaPlayers(visibleSections);
     const states = view.content.states;
     const signature = membershipKey(areaId, name, icon, sections);
@@ -643,6 +697,7 @@ class AreaCard extends HTMLElement {
       this.stopDotTooltipWatch();
       this.stopAreaEditWatch();
       this.pinEditing = false;
+      this.groupSession = null;
       this.buttonEl?.remove();
       this.popupEl?.remove();
       this.buttonEl = document.createElement(BUBBLE_ELEMENT) as BubbleElement;
@@ -837,9 +892,14 @@ class AreaCard extends HTMLElement {
     this.editObserver?.disconnect();
     try {
       const popup = root.querySelector(".bubble-pop-up");
-      if (this.pinEditing && !popup?.classList.contains("is-popup-opened")) {
-        this.pinEditing = false;
-        if (this.lastChipKey !== "") this.schedule();
+      if (!popup?.classList.contains("is-popup-opened")) {
+        if (this.pinEditing) {
+          this.pinEditing = false;
+          if (this.lastChipKey !== "") this.schedule();
+        }
+        if (this.groupSession && !this.groupSession.saving) {
+          this.groupSession = null;
+        }
       }
       const actions = root.querySelector(".bubble-header-actions");
       if (actions) {
@@ -856,6 +916,12 @@ class AreaCard extends HTMLElement {
         syncBatteryButton(battery, cachedBatteryMode(areaId));
       }
       this.paintBatteries(cachedBatteryMode(areaId));
+      if (this._hass) {
+        syncEntityEditControls(root, this._hass, {
+          editing: this.pinEditing,
+          disabled: Boolean(this._config?.demo),
+        });
+      }
       syncPopupEditGuards(root, this.pinEditing);
       syncPinToggles(root, {
         editing: this.pinEditing,
@@ -899,6 +965,40 @@ class AreaCard extends HTMLElement {
         editing: this.pinEditing,
         onReorderScope: (draggedId, scopeIds) => this.sectionReordered(areaId, draggedId, scopeIds),
       });
+      const isDemo = Boolean(this._config?.demo);
+      const groupSuggestions =
+        !isDemo && !this.pinEditing && this._hass && this.visibleSections
+          ? computeGroupSuggestions(
+              this._hass,
+              areaId,
+              this.roomName,
+              this.visibleSections,
+              this.effectiveGroupIgnores(areaId),
+              this.relatedGroupMemberships,
+              this.activeOptimisticGroups(this._hass, areaId),
+            )
+          : [];
+      syncGroupSuggestions(root, {
+        disabled: isDemo || this.pinEditing,
+        suggestions: groupSuggestions,
+        session: this.groupSession,
+        onStart: (suggestion) => this.startGroupSelection(suggestion),
+        onIgnore: (suggestion) => this.ignoreGroupSuggestion(areaId, suggestion),
+        onToggleEntity: (entityId) => this.toggleGroupEntity(entityId),
+        onNameChange: (name) => this.updateGroupName(name),
+        onHideMembersChange: (hide) => this.updateGroupHideMembers(hide),
+        onCancel: () => this.cancelGroupSelection(),
+        onSave: () => this.saveGroupSelection(areaId),
+      });
+      const sectionAddDisabled =
+        isDemo || this.pinEditing || this._hass?.user?.is_admin === false;
+      syncSectionAddActions(root, {
+        disabled: sectionAddDisabled,
+        areaId,
+        emptySections: sectionAddDisabled
+          ? []
+          : emptyCreatableSections(this.visibleSections, this._config?.hide_sections ?? []),
+      });
     } finally {
       this.applyingAreaEdit = false;
       if (this.editObserver && this.editHost === this.popupEl && this.isConnected) {
@@ -939,11 +1039,113 @@ class AreaCard extends HTMLElement {
     button.addEventListener("click", (event) => {
       event.stopPropagation();
       this.pinEditing = !this.pinEditing;
+      if (this.pinEditing && !this.groupSession?.saving) this.groupSession = null;
       if (this.lastChipKey !== "") this.schedule();
       this.applyAreaEdit();
     });
     syncPinEditButton(button, this.pinEditing);
     return button;
+  }
+
+  private startGroupSelection(suggestion: GroupSuggestion): void {
+    this.groupSession = {
+      suggestion,
+      selected: new Set(suggestion.suggestedIds),
+      name: suggestion.defaultName,
+      hideMembers: false,
+      saving: false,
+      error: null,
+    };
+    this.applyAreaEdit();
+  }
+
+  private toggleGroupEntity(entityId: string): void {
+    if (!this.groupSession || this.groupSession.saving) return;
+    if (this.groupSession.selected.has(entityId)) this.groupSession.selected.delete(entityId);
+    else this.groupSession.selected.add(entityId);
+    this.groupSession.error = null;
+    this.applyAreaEdit();
+  }
+
+  private updateGroupName(name: string): void {
+    if (!this.groupSession || this.groupSession.saving) return;
+    this.groupSession.name = name;
+    this.groupSession.error = null;
+    this.applyAreaEdit();
+  }
+
+  private updateGroupHideMembers(hide: boolean): void {
+    if (!this.groupSession || this.groupSession.saving) return;
+    this.groupSession.hideMembers = hide;
+    this.applyAreaEdit();
+  }
+
+  private cancelGroupSelection(): void {
+    if (this.groupSession?.saving) return;
+    this.groupSession = null;
+    this.applyAreaEdit();
+  }
+
+  private ignoreGroupSuggestion(areaId: string, suggestion: GroupSuggestion): void {
+    const hass = this._hass;
+    if (!hass || this.boundAreaId() !== areaId) return;
+    const next = setGroupIgnore(this.effectiveGroupIgnores(areaId), suggestion.key, suggestion.fingerprint);
+    const seq = (this.pendingGroupIgnoreSeq += 1);
+    this.pendingGroupIgnores.set(areaId, { ignores: next, seq });
+    if (this.groupSession?.suggestion.key === suggestion.key) this.groupSession = null;
+    this.applyAreaEdit();
+    void saveAreaGroupIgnores(hass, areaId, next).then(
+      () => {
+        if (this.pendingGroupIgnores.get(areaId)?.seq === seq) this.pendingGroupIgnores.delete(areaId);
+        if (this._hass !== hass || this.boundAreaId() !== areaId) return;
+        this.applyAreaEdit();
+      },
+      () => {
+        if (this.pendingGroupIgnores.get(areaId)?.seq === seq) this.pendingGroupIgnores.delete(areaId);
+        if (this._hass !== hass || this.boundAreaId() !== areaId) return;
+        this.applyAreaEdit();
+      },
+    );
+  }
+
+  private saveGroupSelection(areaId: string): void {
+    const hass = this._hass;
+    const session = this.groupSession;
+    if (!hass || !session || session.saving || this.boundAreaId() !== areaId) return;
+    const entities = session.suggestion.candidateIds.filter((id) => session.selected.has(id));
+    if (entities.length === 0 || !session.name.trim()) return;
+    session.saving = true;
+    session.error = null;
+    this.applyAreaEdit();
+    const deviceClass = session.suggestion.deviceClassFor?.(entities);
+    void createHelperGroup(hass, {
+      groupType: session.suggestion.groupType,
+      name: session.name.trim(),
+      entities,
+      areaId,
+      hideMembers: session.hideMembers,
+      deviceClass,
+    }).then(
+      (created) => {
+        this.optimisticGroups.push({
+          entityId: created.entityId,
+          areaId,
+          domain: session.suggestion.groupType,
+          members: entities,
+          expiresAt: Date.now() + 15_000,
+        });
+        if (this.groupSession === session) this.groupSession = null;
+        if (this.boundAreaId() !== areaId) return;
+        this.applyAreaEdit();
+        this.schedule();
+      },
+      (error: unknown) => {
+        if (this.groupSession !== session) return;
+        session.saving = false;
+        session.error = error instanceof Error ? error.message : "Failed to create helper group";
+        this.applyAreaEdit();
+      },
+    );
   }
 
   private backgroundSelected(areaId: string, choice: AreaBackgroundMode): void {
@@ -1141,6 +1343,11 @@ class AreaCard extends HTMLElement {
     this.syncButtonGap(true);
     this.syncPicturePlacement(true);
     this.paintBatteries(cachedBatteryMode(areaId));
+    syncEntityEditControls(host, hass, {
+      editing: false,
+      disabled: Boolean(this._config?.demo),
+      styleRoot: this,
+    });
   }
 
   private pinnedCard(
@@ -1799,8 +2006,19 @@ class AreaCard extends HTMLElement {
     if (root) {
       if (this.batteryEl?.isConnected) syncBatteryButton(this.batteryEl, mode);
       syncBatteryReadouts(root, hass, mode);
+      syncEntityEditControls(root, hass, {
+        editing: this.pinEditing,
+        disabled: Boolean(this._config?.demo),
+      });
     }
-    if (this.pinnedEl) syncBatteryReadouts(this.pinnedEl, hass, mode, this);
+    if (this.pinnedEl) {
+      syncBatteryReadouts(this.pinnedEl, hass, mode, this);
+      syncEntityEditControls(this.pinnedEl, hass, {
+        editing: false,
+        disabled: Boolean(this._config?.demo),
+        styleRoot: this,
+      });
+    }
   }
 
   private areaEditButton(areaId: string): HTMLButtonElement {

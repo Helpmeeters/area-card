@@ -15,10 +15,13 @@ import {
   cachedFloorCollapsedAreas,
   cachedFloorExpanded,
   cachedFloorSortByPresence,
+  cachedGroupIgnores,
   cachedPins,
   ensureUserData,
+  groupIgnoreKey,
   resetUserDataForTests,
   saveAreaBackground,
+  saveAreaGroupIgnores,
   saveAreaPins,
   saveBatteryMode,
   saveFloorCollapsedAreas,
@@ -591,5 +594,34 @@ describe("frontend user data", { concurrency: 1 }, () => {
         { id: "light.den_corner_lamp", mode: "always", solo: true },
       ],
     });
+  });
+
+  it("caches, saves, and forgets per-area ignored group suggestions", async () => {
+    const harness = createHarness();
+    const pending = ensureUserData(harness.hass);
+    harness.emit({
+      [groupIgnoreKey("office")]: { lights: "light.a,light.b|" },
+    });
+    await pending;
+
+    assert.deepEqual(cachedGroupIgnores("office"), { lights: "light.a,light.b|" });
+    assert.deepEqual(cachedGroupIgnores("kitchen"), {});
+
+    await saveAreaGroupIgnores(harness.hass, "office", {
+      lights: "light.a,light.b|",
+      occupancy: "binary_sensor.a,binary_sensor.b|",
+    });
+    assert.deepEqual(cachedGroupIgnores("office"), {
+      lights: "light.a,light.b|",
+      occupancy: "binary_sensor.a,binary_sensor.b|",
+    });
+    const saved = harness.calls.find((call) => call.key === groupIgnoreKey("office"));
+    assert.deepEqual(saved?.value, {
+      lights: "light.a,light.b|",
+      occupancy: "binary_sensor.a,binary_sensor.b|",
+    });
+
+    harness.emit({});
+    assert.deepEqual(cachedGroupIgnores("office"), {});
   });
 });

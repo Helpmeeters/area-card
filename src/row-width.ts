@@ -21,6 +21,13 @@ export const LINE_WIDTH_RATIO = 0.62;
 
 export type LineMeasure = (text: string, fontSize: number) => number;
 
+export type HalfRowOptions = {
+  led?: boolean;
+  /** Extra pixels reserved on the right (e.g. automation edit pencil). */
+  rightReserve?: number;
+  measure?: LineMeasure;
+};
+
 export function readViewportWidth(): number {
   if (typeof window !== "undefined" && window.innerWidth > 0) return window.innerWidth;
   return 1200;
@@ -31,11 +38,13 @@ export function popupOuterWidth(viewportWidth: number): number {
   return viewportWidth >= DESKTOP_BREAKPOINT ? DESKTOP_POPUP : viewportWidth;
 }
 
-export function halfRowTextWidth(viewportWidth: number, led = false): number {
+export function halfRowTextWidth(viewportWidth: number, ledOrOptions: boolean | Pick<HalfRowOptions, "led" | "rightReserve"> = false): number {
+  const led = typeof ledOrOptions === "boolean" ? ledOrOptions : ledOrOptions.led === true;
+  const rightReserve = typeof ledOrOptions === "boolean" ? 0 : (ledOrOptions.rightReserve ?? 0);
   const desktop = viewportWidth >= DESKTOP_BREAKPOINT;
   const outer = popupOuterWidth(viewportWidth);
   const card = (outer - POPUP_PADDING - COLUMN_GAP) / 2;
-  return card - ROW_CHROME - (desktop ? 0 : MOBILE_CLIP) - (led ? LED_RESERVE : 0);
+  return card - ROW_CHROME - (desktop ? 0 : MOBILE_CLIP) - (led ? LED_RESERVE : 0) - rightReserve;
 }
 
 export function estimateLineWidth(text: string, fontSize: number): number {
@@ -57,11 +66,14 @@ export function fitsHalfRow(
   primary: string,
   secondaries: readonly string[],
   viewportWidth: number,
-  options?: { led?: boolean; measure?: LineMeasure },
+  options?: HalfRowOptions,
 ): boolean {
   if (primary.startsWith("{{") || primary.trim() === "") return false;
   const measure = options?.measure ?? measureLine;
-  const available = halfRowTextWidth(viewportWidth, options?.led === true);
+  const available = halfRowTextWidth(viewportWidth, {
+    led: options?.led === true,
+    rightReserve: options?.rightReserve ?? 0,
+  });
   if (!(available > 0)) return false;
   if (measure(primary, PRIMARY_FONT) > available) return false;
   for (const line of secondaries) {
@@ -74,7 +86,7 @@ export function rowColumns(
   primary: string,
   secondaries: readonly string[],
   viewportWidth: number,
-  options?: { led?: boolean; measure?: LineMeasure },
+  options?: HalfRowOptions,
 ): { columns: number } {
   return { columns: fitsHalfRow(primary, secondaries, viewportWidth, options) ? 6 : 12 };
 }

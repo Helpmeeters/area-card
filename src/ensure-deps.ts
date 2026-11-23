@@ -1,11 +1,22 @@
+import {
+  installMushroomIconActions,
+  MUSHROOM_STATE_ITEM_TAG,
+  patchMushroomIconActions,
+} from "./mushroom-icon-action";
+import { installMushroomSliderCurve, MUSHROOM_SLIDER_TAG, patchMushroomSlider } from "./slider-curve";
 import { BUBBLE_ELEMENT, BUBBLE_SCRIPT, MUSHROOM_SCRIPT } from "./tags";
 
 const MUSHROOM_READY = "area-card-mushroom-light-card";
+
+installMushroomSliderCurve();
+installMushroomIconActions();
 
 let pending: Promise<void> | undefined;
 
 export function ensureDeps(): Promise<void> {
   if (customElements.get(BUBBLE_ELEMENT) && customElements.get(MUSHROOM_READY)) {
+    patchMushroomSlider();
+    patchMushroomIconActions();
     return Promise.resolve();
   }
   if (!pending) {
@@ -22,9 +33,13 @@ async function loadDeps(): Promise<void> {
   await Promise.all([
     waitForElement(BUBBLE_ELEMENT),
     waitForElement(MUSHROOM_READY),
+    waitForElement(MUSHROOM_SLIDER_TAG),
+    waitForElement(MUSHROOM_STATE_ITEM_TAG),
     waitForElement("area-card-mushroom-template-card"),
     waitForElement("area-card-mushroom-chips-card"),
   ]);
+  patchMushroomSlider();
+  patchMushroomIconActions();
 }
 
 async function loadFirst(file: string): Promise<void> {

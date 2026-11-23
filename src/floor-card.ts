@@ -28,6 +28,7 @@ import {
   type RollupId,
   type SectionRollup,
 } from "./rollups";
+import { isCreatableSection } from "./section-add";
 import { applyChipPins, classifyArea, type AreaSections, type ClassifierHass } from "./sections";
 import { PINNED_KEY_PREFIX } from "./pinned-entities";
 import {
@@ -704,7 +705,11 @@ function floorOccupancyTooltip(groups: readonly (readonly SectionRollup[])[]): s
 
 function computeFloorHide(sectionsList: AreaSections[]): RollupId[] {
   if (sectionsList.length === 0) return [];
-  return ROLLUP_ORDER.filter((id) => sectionsList.every((section) => !sectionHasEntities(id, section)));
+  // Creatable sections stay visible to section create actions even when every
+  // area on the floor currently has none (they are not on the dot row).
+  return ROLLUP_ORDER.filter(
+    (id) => !isCreatableSection(id) && sectionsList.every((section) => !sectionHasEntities(id, section)),
+  );
 }
 
 if (!customElements.get("floor-card")) {
